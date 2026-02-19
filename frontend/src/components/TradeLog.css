@@ -1,0 +1,113 @@
+.trade-log {
+    background: var(--bg-card);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+}
+
+.trade-log-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--space-lg) var(--space-xl);
+    border-bottom: 1px solid var(--border-primary);
+}
+
+.trade-log-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+.trade-count {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    padding: var(--space-xs) var(--space-md);
+    background: var(--bg-input);
+    border-radius: var(--radius-full);
+}
+
+.table-wrapper {
+    overflow-x: auto;
+    max-height: 500px;
+    overflow-y: auto;
+}
+
+.trades-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+}
+
+.trades-table th {
+    position: sticky;
+    top: 0;
+    padding: var(--space-md) var(--space-lg);
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-primary);
+    white-space: nowrap;
+    z-index: 1;
+}
+
+.trades-table th.sortable {
+    cursor: pointer;
+    user-select: none;
+}
+
+.trades-table th.sortable:hover {
+    color: var(--text-primary);
+}
+
+.sort-arrow {
+    color: var(--accent-blue);
+}
+
+.trades-table td {
+    padding: var(--space-sm) var(--space-lg);
+    border-bottom: 1px solid var(--border-primary);
+    white-space: nowrap;
+    font-size: 0.8rem;
+}
+
+.trades-table tbody tr {
+    transition: background var(--transition-fast);
+}
+
+.trades-table tbody tr:hover {
+    background: var(--bg-card-hover);
+}
+
+.row-win {
+    border-left: 2px solid var(--profit-green);
+}
+
+.row-loss {
+    border-left: 2px solid var(--loss-red);
+}
+
+.side-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.side-badge.buy {
+    background: var(--profit-green-bg);
+    color: var(--profit-green);
+    border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.side-badge.sell {
+    background: var(--loss-red-bg);
+    color: var(--loss-red);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}
