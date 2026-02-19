@@ -1,10 +1,27 @@
 """
 MT5 Connection Module
 Handles login/logout, symbol enumeration, and symbol info retrieval.
+MetaTrader5 is imported lazily to avoid numpy compatibility issues at startup.
 """
 
-import MetaTrader5 as mt5
 from datetime import datetime
+
+
+def _get_mt5():
+    """
+    Lazy import of MetaTrader5.
+    Returns the module or raises ImportError with a helpful message.
+    """
+    try:
+        import MetaTrader5 as mt5
+        return mt5
+    except ImportError as e:
+        raise RuntimeError(
+            f"Failed to import MetaTrader5: {e}. "
+            "Ensure the MetaTrader5 package is installed: pip install MetaTrader5"
+        )
+    except Exception as e:
+        raise RuntimeError(f"MetaTrader5 import error: {e}")
 
 
 class MT5Connection:
@@ -27,11 +44,17 @@ class MT5Connection:
         Initialize MT5 terminal and login.
         Returns dict with success status and account info or error message.
         """
+        try:
+            mt5 = _get_mt5()
+        except RuntimeError as e:
+            return {"success": False, "error": str(e)}
+
         # Initialize MT5 terminal
         if not mt5.initialize():
+            err = mt5.last_error()
             return {
                 "success": False,
-                "error": f"MT5 initialization failed: {mt5.last_error()}",
+                "error": f"MT5 initialization failed: {err}. Make sure MetaTrader 5 terminal is running.",
             }
 
         # Login to account
@@ -50,7 +73,7 @@ class MT5Connection:
             mt5.shutdown()
             return {
                 "success": False,
-                "error": "Failed to retrieve account info",
+                "error": "Failed to retrieve account info after login.",
             }
 
         self._connected = True
@@ -72,7 +95,11 @@ class MT5Connection:
     def disconnect(self) -> dict:
         """Shutdown MT5 connection."""
         if self._connected:
-            mt5.shutdown()
+            try:
+                mt5 = _get_mt5()
+                mt5.shutdown()
+            except Exception:
+                pass
             self._connected = False
             self._account_info = None
         return {"success": True, "message": "Disconnected from MT5"}
@@ -87,13 +114,17 @@ class MT5Connection:
         if not self._connected:
             return []
 
+        try:
+            mt5 = _get_mt5()
+        except RuntimeError:
+            return []
+
         symbols = mt5.symbols_get(group=group)
         if symbols is None:
             return []
 
         result = []
         for s in symbols:
-            # Only include visible symbols
             if s.visible:
                 result.append({
                     "name": s.name,
@@ -115,6 +146,11 @@ class MT5Connection:
         Returns dict with symbol properties or None if not found.
         """
         if not self._connected:
+            return None
+
+        try:
+            mt5 = _get_mt5()
+        except RuntimeError:
             return None
 
         info = mt5.symbol_info(symbol)
@@ -141,13 +177,13 @@ class MT5Connection:
     def get_timeframes(self) -> list[dict]:
         """Return supported MT5 timeframes."""
         return [
-            {"value": "M1", "label": "1 Minute"},
-            {"value": "M5", "label": "5 Minutes"},
+            {"value": "M1",  "label": "1 Minute"},
+            {"value": "M5",  "label": "5 Minutes"},
             {"value": "M15", "label": "15 Minutes"},
             {"value": "M30", "label": "30 Minutes"},
-            {"value": "H1", "label": "1 Hour"},
-            {"value": "H4", "label": "4 Hours"},
-            {"value": "D1", "label": "Daily"},
-            {"value": "W1", "label": "Weekly"},
+            {"value": "H1",  "label": "1 Hour"},
+            {"value": "H4",  "label": "4 Hours"},
+            {"value": "D1",  "label": "Daily"},
+            {"value": "W1",  "label": "Weekly"},
             {"value": "MN1", "label": "Monthly"},
         ]

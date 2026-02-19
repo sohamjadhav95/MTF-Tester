@@ -1,10 +1,13 @@
 """
 Strategy Tester API
 FastAPI application with all REST endpoints.
+Serves the frontend as static files (no Node.js needed).
 """
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional
@@ -21,6 +24,8 @@ from engine.backtester import Backtester
 from engine.models import BacktestConfig
 from strategies.loader import discover_strategies, get_strategy_list
 
+# Path to the frontend directory (one level up from backend)
+FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'frontend')
 
 # ─── App Setup ──────────────────────────────────────────────
 app = FastAPI(
@@ -75,11 +80,14 @@ class BacktestRequest(BaseModel):
 @app.post("/api/mt5/connect")
 async def mt5_connect(req: MT5ConnectRequest):
     """Connect to MT5 terminal."""
-    result = mt5_conn.connect(
-        server=req.server,
-        login=req.login,
-        password=req.password,
-    )
+    try:
+        result = mt5_conn.connect(
+            server=req.server,
+            login=req.login,
+            password=req.password,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unexpected server error: {str(e)}")
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["error"])
     return result
@@ -240,9 +248,13 @@ async def run_backtest(req: BacktestRequest):
     # Serialize trades
     trades_data = []
     for t in result.trades:
+        def _fmt_dt(dt):
+            if isinstance(dt, datetime):
+                return dt.replace(tzinfo=None).isoformat()
+            return str(dt)
         trades_data.append({
-            "entry_time": t.entry_time.isoformat() if isinstance(t.entry_time, datetime) else str(t.entry_time),
-            "exit_time": t.exit_time.isoformat() if isinstance(t.exit_time, datetime) else str(t.exit_time),
+            "entry_time": _fmt_dt(t.entry_time),
+            "exit_time":  _fmt_dt(t.exit_time),
             "direction": t.direction,
             "entry_price": t.entry_price,
             "exit_price": t.exit_price,
@@ -251,6 +263,9 @@ async def run_backtest(req: BacktestRequest):
             "pnl_money": t.pnl_money,
             "spread_cost_pips": t.spread_cost_pips,
             "bars_held": t.bars_held,
+            "sl_price": t.sl_price,
+            "tp_price": t.tp_price,
+            "exit_reason": t.exit_reason,
         })
 
     return {
@@ -274,11 +289,21 @@ async def run_backtest(req: BacktestRequest):
     }
 
 
-# ─── Health Check ─────────────────────────────────────────────
+# ─── Frontend Serving ─────────────────────────────────────────
 @app.get("/")
-async def root():
+async def serve_frontend():
+    """Serve the frontend HTML page."""
+    return FileResponse(os.path.join(FRONTEND_DIR, 'index.html'))
+
+
+@app.get("/api/health")
+async def health_check():
     return {
         "app": "Strategy Tester API",
         "version": "1.0.0",
         "mt5_connected": mt5_conn.connected,
     }
+
+
+# Mount static files (CSS, JS) — MUST be last so it doesn't catch API routes
+app.mount("/", StaticFiles(directory=FRONTEND_DIR), name="static")

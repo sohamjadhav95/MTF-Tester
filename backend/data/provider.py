@@ -1,25 +1,34 @@
 """
 Data Provider Module
 Fetches OHLCV historical data from MT5.
+MT5 is imported lazily to avoid numpy compatibility issues at startup.
 """
 
-import MetaTrader5 as mt5
 import pandas as pd
 from datetime import datetime
 
 
-# MT5 timeframe constants mapping
-TIMEFRAME_MT5 = {
-    "M1": mt5.TIMEFRAME_M1,
-    "M5": mt5.TIMEFRAME_M5,
-    "M15": mt5.TIMEFRAME_M15,
-    "M30": mt5.TIMEFRAME_M30,
-    "H1": mt5.TIMEFRAME_H1,
-    "H4": mt5.TIMEFRAME_H4,
-    "D1": mt5.TIMEFRAME_D1,
-    "W1": mt5.TIMEFRAME_W1,
-    "MN1": mt5.TIMEFRAME_MN1,
-}
+def _get_mt5():
+    """Lazy import MetaTrader5."""
+    import MetaTrader5 as mt5
+    return mt5
+
+
+def _get_timeframe_mt5(timeframe_str: str):
+    """Map string timeframe to MT5 constant (lazy)."""
+    mt5 = _get_mt5()
+    mapping = {
+        "M1": mt5.TIMEFRAME_M1,
+        "M5": mt5.TIMEFRAME_M5,
+        "M15": mt5.TIMEFRAME_M15,
+        "M30": mt5.TIMEFRAME_M30,
+        "H1": mt5.TIMEFRAME_H1,
+        "H4": mt5.TIMEFRAME_H4,
+        "D1": mt5.TIMEFRAME_D1,
+        "W1": mt5.TIMEFRAME_W1,
+        "MN1": mt5.TIMEFRAME_MN1,
+    }
+    return mapping.get(timeframe_str)
 
 
 def fetch_ohlcv(
@@ -43,11 +52,14 @@ def fetch_ohlcv(
     Raises:
         ValueError: If timeframe is invalid or no data returned
     """
-    tf = TIMEFRAME_MT5.get(timeframe)
+    mt5 = _get_mt5()
+
+    tf = _get_timeframe_mt5(timeframe)
     if tf is None:
+        valid_tfs = ["M1", "M5", "M15", "M30", "H1", "H4", "D1", "W1", "MN1"]
         raise ValueError(
             f"Invalid timeframe '{timeframe}'. "
-            f"Valid options: {list(TIMEFRAME_MT5.keys())}"
+            f"Valid options: {valid_tfs}"
         )
 
     # Ensure the symbol is available in MarketWatch
