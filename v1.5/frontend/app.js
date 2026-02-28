@@ -9,6 +9,7 @@ const state = {
   timeframes: [],
   strategies: [],
   strategySettings: null,
+  marketType: 'forex',   // 'forex' | 'crypto'
   config: {
     symbol: '', timeframe: 'H1', dateFrom: '', dateTo: '',
     strategy: '', settings: {},
@@ -112,14 +113,82 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ─── Market Type ────────────────────────────────────────────────
-function setMarketType(type) {
-  document.getElementById('btn-forex').classList.toggle('active', type === 'forex');
-  document.getElementById('btn-crypto').classList.toggle('active', type === 'crypto');
+async function setMarketType(type) {
+  state.marketType = type;
+  const isCrypto = type === 'crypto';
+
+  // Toggle button active state
+  document.getElementById('btn-forex').classList.toggle('active', !isCrypto);
+  document.getElementById('btn-crypto').classList.toggle('active', isCrypto);
+
+  // Switch CSS theme via data-market attribute (triggers CSS variable transition)
+  document.documentElement.setAttribute('data-market', isCrypto ? 'crypto' : 'forex');
+
+  // Reset symbol & timeframe
+  state.config.symbol = '';
+  state.config.timeframe = isCrypto ? 'H1' : 'H1';
+
+  // Update sidebar immediately (before async loads)
+  renderMT5Section();
+
+  if (isCrypto) {
+    // Load Binance Futures symbols and timeframes
+    document.getElementById('config-col-left').innerHTML = '<div class="config-disabled"><div class="disabled-icon">⏳</div><p>Loading Binance Futures symbols...</p></div>';
+    try {
+      const [symRes, tfRes, stratRes] = await Promise.all([
+        api('/api/crypto/symbols'),
+        api('/api/crypto/timeframes'),
+        api('/api/strategies'),
+      ]);
+      state.symbols = symRes.symbols || [];
+      state.timeframes = tfRes.timeframes || [];
+      state.strategies = stratRes.strategies || [];
+      // Crypto also uses smaller default lot size
+      state.config.lotSize = 0.01;
+      // Enable run button for crypto (no login needed)
+      document.getElementById('btn-run').disabled = false;
+    } catch (err) {
+      console.error('Failed to load crypto data:', err);
+    }
+    renderConfigCols();
+  } else {
+    // Restore MT5 symbols/timeframes if connected
+    if (state.mt5Connected) {
+      await loadConfigData();
+    } else {
+      state.symbols = [];
+      state.timeframes = [];
+    }
+    renderConfigCols();
+    if (!state.mt5Connected) document.getElementById('btn-run').disabled = true;
+  }
 }
 
-// ─── MT5 Section ────────────────────────────────────────────────
+// ─── MT5 / Connection Section ────────────────────────────────────
 function renderMT5Section() {
   const el = document.getElementById('mt5-section');
+
+  // ── Crypto mode: no MT5 login needed ──────────────────────────
+  if (state.marketType === 'crypto') {
+    el.innerHTML = `
+      <div class="sidebar-content-scroll">
+        <div class="connection-status">
+          <span class="status-dot connected"></span>
+          <span class="status-text">Binance Futures</span>
+        </div>
+        <div class="account-details">
+          <div class="detail-row"><span class="detail-label">Source</span><span class="detail-value">Binance FAPI</span></div>
+          <div class="detail-row"><span class="detail-label">Market</span><span class="detail-value">USDT Perpetuals</span></div>
+          <div class="detail-row"><span class="detail-label">Auth</span><span class="detail-value text-profit">Public API ✓</span></div>
+        </div>
+        <button class="btn-disconnect" onclick="setMarketType('forex')" style="margin-top:12px">
+          ← Switch to Forex
+        </button>
+      </div>`;
+    return;
+  }
+
+  // ── Forex mode: MT5 login or connected view ────────────────────
   if (state.mt5Connected && state.accountInfo) {
     const a = state.accountInfo;
     el.innerHTML = `
@@ -219,8 +288,9 @@ async function loadConfigData() {
 function renderConfigCols() {
   const leftEl = document.getElementById('config-col-left');
   const rightEl = document.getElementById('config-col-right');
+  const isCrypto = state.marketType === 'crypto';
 
-  if (!state.mt5Connected) {
+  if (!state.mt5Connected && !isCrypto) {
     leftEl.innerHTML = `<div class="config-disabled"><div class="disabled-icon">🔌</div><p>Connect to MT5 to configure your backtest</p></div>`;
     rightEl.innerHTML = '';
     return;
@@ -513,7 +583,7 @@ async function runBacktest() {
   }, 500);
 
   try {
-    const result = await api('/api/backtest', {
+    const result = await api(state.marketType === 'crypto' ? '/api/crypto/backtest' : '/api/backtest', {
       method: 'POST',
       body: JSON.stringify({
         symbol: c.symbol,
@@ -791,7 +861,7 @@ function renderTradeLog() {
     <div class="table-wrapper">
       <table class="trades-table">
         <thead><tr>
-          <th>#</th>
+          <th title="Unique Trade ID — click to copy">ID</th>
           <th onclick="sortTrades('direction')">Side${sortArrow('direction')}</th>
           <th onclick="sortTrades('entry_time')">Entry Time (UTC)${sortArrow('entry_time')}</th>
           <th onclick="sortTrades('exit_time')">Exit Time (UTC)${sortArrow('exit_time')}</th>
@@ -805,9 +875,9 @@ function renderTradeLog() {
           <th onclick="sortTrades('spread_cost_pips')">Spread${sortArrow('spread_cost_pips')}</th>
         </tr></thead>
         <tbody>
-          ${sorted.map((t, i) => `
+          ${sorted.map((t) => `
             <tr class="${t.pnl_pips >= 0 ? 'row-win' : 'row-loss'}">
-              <td style="color:var(--text-muted)">${i + 1}</td>
+              <td><span class="trade-id-badge" onclick="copyTradeId('${t.trade_id}', this)" title="Click to copy: ${t.trade_id}">${t.trade_id || '—'}</span></td>
               <td><span class="side-badge ${t.direction === 'BUY' ? 'buy' : 'sell'}">${t.direction}</span></td>
               <td style="font-family:var(--font-mono)">${fmtTimeUTC(t.entry_time)}</td>
               <td style="font-family:var(--font-mono)">${fmtTimeUTC(t.exit_time)}</td>
@@ -823,6 +893,14 @@ function renderTradeLog() {
         </tbody>
       </table>
     </div>`;
+}
+
+function copyTradeId(id, el) {
+  if (!id) return;
+  navigator.clipboard?.writeText(id).catch(() => { });
+  const orig = el.textContent;
+  el.textContent = 'Copied!';
+  setTimeout(() => { el.textContent = orig; }, 1200);
 }
 
 function sortTrades(field) {

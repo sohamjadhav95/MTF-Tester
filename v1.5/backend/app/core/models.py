@@ -7,12 +7,19 @@ Dataclasses for trades, positions, and backtest configuration/results.
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
+import uuid
+
+
+def _new_trade_id() -> str:
+    """Generate a short unique trade ID (first 8 chars of UUID4)."""
+    return uuid.uuid4().hex[:8].upper()
 
 
 @dataclass
 class Trade:
     """Represents a completed (closed) trade."""
 
+    trade_id: str  # Unique 8-char ID, shared with the Position that spawned it
     entry_time: datetime
     exit_time: datetime
     direction: str  # "BUY" or "SELL"
@@ -36,6 +43,7 @@ class Trade:
 class Position:
     """Tracks the current open position during backtesting."""
 
+    trade_id: str   # Generated at open, propagated to Trade on close
     direction: str  # "BUY" or "SELL"
     entry_price: float
     entry_time: datetime

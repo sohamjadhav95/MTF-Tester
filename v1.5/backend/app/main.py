@@ -26,6 +26,7 @@ from app.config import CORS_ORIGINS
 from app.core.registry import auto_discover_strategies
 from app.api.routes_strategies import router as strategies_router
 from app.api.routes_backtest import router as backtest_router
+from app.api.routes_crypto import router as crypto_router
 
 # Path to the frontend directory
 FRONTEND_DIR = os.path.join(
@@ -52,6 +53,7 @@ app.add_middleware(
 # ─── Routers ────────────────────────────────────────────────────
 app.include_router(strategies_router)
 app.include_router(backtest_router)
+app.include_router(crypto_router)
 
 
 # ─── Startup ────────────────────────────────────────────────────

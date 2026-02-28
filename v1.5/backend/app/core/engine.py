@@ -17,7 +17,7 @@ import numpy as np
 from datetime import datetime
 from typing import Optional, Tuple, TYPE_CHECKING
 
-from app.core.models import Trade, Position, BacktestConfig, BacktestResult
+from app.core.models import Trade, Position, BacktestConfig, BacktestResult, _new_trade_id
 from app.core.risk import RiskManager
 
 if TYPE_CHECKING:
@@ -265,6 +265,7 @@ class Backtester:
         lot_size = self._get_lot_size(sl_price, entry_price)
 
         self.position = Position(
+            trade_id=_new_trade_id(),
             direction=direction,
             entry_price=entry_price,
             entry_time=bar["time"],
@@ -323,6 +324,7 @@ class Backtester:
         bars_held = bar_index - self.position.entry_bar_index
 
         trade = Trade(
+            trade_id=self.position.trade_id,
             entry_time=self.position.entry_time,
             exit_time=bar["time"],
             direction=self.position.direction,

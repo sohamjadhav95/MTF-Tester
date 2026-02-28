@@ -220,6 +220,7 @@ async def run_backtest(req: BacktestRequest):
             return str(dt)
 
         trades_data.append({
+            "trade_id": t.trade_id,
             "entry_time": _fmt_dt(t.entry_time),
             "exit_time": _fmt_dt(t.exit_time),
             "direction": t.direction,

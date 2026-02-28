@@ -34,8 +34,8 @@
             <!-- Market Type Toggle -->
             <div class="market-toggle">
                 <button class="toggle-btn active" id="btn-forex" onclick="setMarketType('forex')">Forex</button>
-                <button class="toggle-btn" id="btn-crypto" disabled title="Coming soon">
-                    Crypto <span class="coming-soon">Soon</span>
+                <button class="toggle-btn" id="btn-crypto" onclick="setMarketType('crypto')">
+                    Crypto
                 </button>
             </div>
 
@@ -98,12 +98,16 @@
                         <div id="price-chart-wrap" class="chart-wrap">
                             <div class="chart-toolbar-row">
                                 <div class="chart-legend-row">
-                                    <span class="legend-item"><span class="legend-dot" style="background:#22c55e"></span>Buy Entry</span>
-                                    <span class="legend-item"><span class="legend-dot" style="background:#ef4444"></span>Sell Entry</span>
-                                    <span class="legend-item"><span class="legend-dot" style="background:#f59e0b;border-radius:50%"></span>Exit</span>
+                                    <span class="legend-item"><span class="legend-dot"
+                                            style="background:#22c55e"></span>Buy Entry</span>
+                                    <span class="legend-item"><span class="legend-dot"
+                                            style="background:#ef4444"></span>Sell Entry</span>
+                                    <span class="legend-item"><span class="legend-dot"
+                                            style="background:#f59e0b;border-radius:50%"></span>Exit</span>
                                 </div>
                                 <div class="chart-tools">
-                                    <button class="chart-tool-btn" id="btn-measure" onclick="toggleMeasureTool()" title="Measure (click &amp; drag on chart)">
+                                    <button class="chart-tool-btn" id="btn-measure" onclick="toggleMeasureTool()"
+                                        title="Measure (click &amp; drag on chart)">
                                         📏 <span>Measure</span>
                                     </button>
                                 </div>

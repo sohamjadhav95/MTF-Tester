@@ -74,6 +74,67 @@
     --chart-text: #64748b;
 }
 
+/* ─── Crypto Market Theme (amber / gold) ─────────────── */
+/* Applied on <html data-market="crypto"> — overrides accent colors only.
+   Works in combination with dark/light data-theme. */
+[data-market="crypto"] {
+    --accent-blue: #f59e0b;
+    --accent-blue-hover: #d97706;
+    --accent-blue-glow: rgba(245, 158, 11, 0.22);
+    --accent-cyan: #fbbf24;
+    --border-accent: #f59e0b;
+    --border-focus: #fbbf24;
+    --shadow-glow-blue: 0 0 20px rgba(245, 158, 11, 0.18);
+}
+
+/* ─── Smooth transition when switching markets ───────── */
+/* Transition on all elements that use CSS variables for colors */
+*,
+*::before,
+*::after {
+    transition:
+        background-color 0.4s ease,
+        border-color 0.4s ease,
+        color 0.4s ease,
+        box-shadow 0.4s ease;
+}
+
+/* Exclude transitions for chart animations and transforms (would break UX) */
+.chart-canvas *,
+canvas,
+[style*="transform"],
+.results-section,
+.metric-card {
+    transition:
+        background-color 0.4s ease,
+        border-color 0.4s ease,
+        box-shadow 0.4s ease;
+}
+
+/* ─── Trade ID badge ─────────────────────────────────── */
+.trade-id-badge {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(59, 130, 246, 0.12);
+    color: var(--accent-blue);
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    cursor: pointer;
+    white-space: nowrap;
+    user-select: all;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.trade-id-badge:hover {
+    background: rgba(59, 130, 246, 0.22);
+    border-color: var(--accent-blue);
+}
+
+
 /* ─── Reset ──────────────────────────────────────────── */
 *,
 *::before,
@@ -1028,16 +1089,14 @@ body {
     height: 100%;
     width: 0%;
     background-color: var(--accent-blue);
-    background-image: linear-gradient(
-        -45deg,
-        rgba(255, 255, 255, 0.15) 25%,
-        transparent 25%,
-        transparent 50%,
-        rgba(255, 255, 255, 0.15) 50%,
-        rgba(255, 255, 255, 0.15) 75%,
-        transparent 75%,
-        transparent
-    );
+    background-image: linear-gradient(-45deg,
+            rgba(255, 255, 255, 0.15) 25%,
+            transparent 25%,
+            transparent 50%,
+            rgba(255, 255, 255, 0.15) 50%,
+            rgba(255, 255, 255, 0.15) 75%,
+            transparent 75%,
+            transparent);
     background-size: 24px 24px;
     border-radius: var(--radius-full);
     transition: width 0.3s ease;
@@ -1046,8 +1105,13 @@ body {
 }
 
 @keyframes progress-stripes {
-    0% { background-position: 24px 0; }
-    100% { background-position: 0 0; }
+    0% {
+        background-position: 24px 0;
+    }
+
+    100% {
+        background-position: 0 0;
+    }
 }
 
 .loading-sub {
