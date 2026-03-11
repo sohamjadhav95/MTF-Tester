@@ -555,7 +555,7 @@ async function toggleScanner() {
       btn.style.background = 'var(--loss-red)';
       btn.style.boxShadow = 'none';
       
-      initScannerUI(resp.historical_candles, resp.historical_signals);
+      initScannerUI(resp.historical_candles, resp.historical_signals, resp.historical_indicators);
       connectWebSocket();
       
       document.getElementById('loading-overlay').style.display = 'none';
@@ -585,7 +585,7 @@ async function toggleScanner() {
 
 function _toTs(isoStr) { return Math.floor(new Date(isoStr).getTime() / 1000); }
 
-function initScannerUI(histCandles, histSignals) {
+function initScannerUI(histCandles, histSignals, histIndicators) {
   document.getElementById('scanner-section').style.display = 'flex';
   document.getElementById('scanner-meta').innerHTML = `
     <span class="meta-tag">${state.config.symbol}</span>
@@ -614,8 +614,8 @@ function initScannerUI(histCandles, histSignals) {
     wrap.id = `chart-wrap-${tf}`;
     wrap.innerHTML = `
       <div class="mtf-chart-header">
-         <span class="mtf-chart-title">${state.config.symbol}</span>
-         <span class="mtf-chart-tf">${tf}</span>
+         <span class="mtf-chart-title">${state.config.symbol} <span class="mtf-chart-tf">${tf}</span></span>
+         <button class="expand-btn" onclick="openExpandedChart('${tf}')" title="Expand Chart">&#x26F6;</button>
       </div>
       <div class="mtf-chart-canvas" id="canvas-${tf}"></div>
     `;
@@ -639,7 +639,35 @@ function initScannerUI(histCandles, histSignals) {
       wickUpColor: '#22c55e', wickDownColor: '#ef4444',
     });
     
-    mtfCharts[tf] = { wrapEl: wrap, chartInst: chart, candleSeries: candleSeries };
+    // Add multiple line series for indicators
+    const indicatorSeriesMap = {};
+    if (histIndicators && histIndicators[tf]) {
+      const lineColors = ['#3b82f6', '#f59e0b', '#8b5cf6', '#06b6d4'];
+      let colorIdx = 0;
+      
+      for (const [indName, dataPoints] of Object.entries(histIndicators[tf])) {
+         const line = chart.addLineSeries({
+             color: lineColors[colorIdx % lineColors.length],
+             lineWidth: 1,
+             title: indName
+         });
+         
+         const sortedPts = [...dataPoints]
+             .map(p => ({ time: _toTs(p.time), value: p.value }))
+             .sort((a,b) => a.time - b.time);
+             
+         line.setData(sortedPts);
+         indicatorSeriesMap[indName] = line;
+         colorIdx++;
+      }
+    }
+    
+    mtfCharts[tf] = { 
+      wrapEl: wrap, 
+      chartInst: chart, 
+      candleSeries: candleSeries,
+      indicatorSeriesMap: indicatorSeriesMap
+    };
     
     // Set historical candles
     if (histCandles && histCandles[tf]) {
@@ -665,13 +693,35 @@ function initScannerUI(histCandles, histSignals) {
     }
   });
   
-  // Render historical signals
+  // Render historical signals & markers
   if (histSignals && histSignals.length > 0) {
-      // histSignals are newest-first. Reverse to get oldest-first for the DOM append logic.
       const reversed = [...histSignals].reverse();
+      
+      // Group markers by timeframe
+      const markersByTf = {};
+      
       reversed.forEach(sig => {
           renderSignalItem(sig);
+          
+          if (!markersByTf[sig.timeframe]) markersByTf[sig.timeframe] = [];
+          
+          markersByTf[sig.timeframe].push({
+              time: _toTs(sig.bar_time),
+              position: sig.direction === 'BUY' ? 'belowBar' : 'aboveBar',
+              color: sig.direction === 'BUY' ? '#22c55e' : '#ef4444',
+              shape: sig.direction === 'BUY' ? 'arrowUp' : 'arrowDown',
+              text: sig.direction
+          });
       });
+      
+      // Apply markers to charts
+      for (const tf in markersByTf) {
+          if (mtfCharts[tf]) {
+              const markers = markersByTf[tf].sort((a,b) => a.time - b.time);
+              mtfCharts[tf].candleSeries.setMarkers(markers);
+              mtfCharts[tf].markers = markers; // Store for future updates
+          }
+      }
       
       // Sort charts by the most recent signal (they are already newest-first in histSignals)
       const tfs_in_order = [...new Set(histSignals.map(s => s.timeframe))].reverse();
@@ -701,7 +751,7 @@ function initScannerUI(histCandles, histSignals) {
 
 function connectWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/stream`;
+    const wsUrl = `${protocol}//${window.location.host}/api/mtf/stream`;
     wsConnection = new WebSocket(wsUrl);
     
     wsConnection.onmessage = (event) => {
@@ -717,6 +767,16 @@ function connectWebSocket() {
                         low: update.bar.low,
                         close: update.bar.close
                     });
+                    
+                    if (state.expandedTf === tf && state.expandedChart && state.expandedCandles) {
+                        state.expandedCandles.update({
+                            time: _toTs(update.bar.time),
+                            open: update.bar.open,
+                            high: update.bar.high,
+                            low: update.bar.low,
+                            close: update.bar.close
+                        });
+                    }
                 }
             });
         }
@@ -755,6 +815,25 @@ function handleNewSignal(sig) {
             void wrap.offsetWidth; 
             wrap.classList.add(isBuy ? 'chart-glow-buy' : 'chart-glow-sell');
         }
+        
+        // Add Marker
+        const marker = {
+            time: _toTs(sig.bar_time),
+            position: isBuy ? 'belowBar' : 'aboveBar',
+            color: isBuy ? '#22c55e' : '#ef4444',
+            shape: isBuy ? 'arrowUp' : 'arrowDown',
+            text: sig.direction
+        };
+        
+        if (!mtfCharts[tf].markers) mtfCharts[tf].markers = [];
+        mtfCharts[tf].markers.push(marker);
+        mtfCharts[tf].markers.sort((a, b) => a.time - b.time);
+        mtfCharts[tf].candleSeries.setMarkers(mtfCharts[tf].markers);
+        
+        // Update Expanded Chart if active
+        if (state.expandedTf === tf && state.expandedCandles) {
+            state.expandedCandles.setMarkers(mtfCharts[tf].markers);
+        }
     }
     
     renderSignalItem(sig);
@@ -784,3 +863,90 @@ function renderSignalItem(sig) {
     `;
     rc.prepend(item);
 }
+
+
+// ─── Expanded Chart Modal ───────────────────────────────────────
+function openExpandedChart(tf) {
+    const modal = document.getElementById('chart-modal');
+    const container = document.getElementById('modal-chart-container');
+    const title = document.getElementById('modal-title');
+    
+    // Set Title
+    title.innerHTML = `${state.config.symbol} <span class="mtf-chart-tf">${tf}</span>`;
+    
+    // Clear previous
+    container.innerHTML = '';
+    
+    const colors = getChartColors();
+    
+    // Create new chart instance
+    const chart = LightweightCharts.createChart(container, {
+        width: container.clientWidth,
+        height: container.clientHeight,
+        layout: { background: { type: 'solid', color: colors.bg }, textColor: colors.text, fontFamily: "'Inter', sans-serif", fontSize: 12 },
+        grid: { vertLines: { color: colors.grid }, horzLines: { color: colors.grid } },
+        rightPriceScale: { borderColor: colors.border },
+        timeScale: { borderColor: colors.border, timeVisible: true, secondsVisible: false },
+        crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+    });
+    
+    const candleSeries = chart.addCandlestickSeries({
+        upColor: '#22c55e', downColor: '#ef4444',
+        borderUpColor: '#22c55e', borderDownColor: '#ef4444',
+        wickUpColor: '#22c55e', wickDownColor: '#ef4444',
+    });
+    
+    // Clone data from original chart
+    const originalChartInfo = mtfCharts[tf];
+    if (originalChartInfo) {
+        const data = originalChartInfo.candleSeries.data();
+        candleSeries.setData(data);
+        
+        // Clone markers
+        if (originalChartInfo.markers) {
+            candleSeries.setMarkers(originalChartInfo.markers);
+        }
+        
+        // Clone indicators
+        if (originalChartInfo.indicatorSeriesMap) {
+            for (const [indName, indSeries] of Object.entries(originalChartInfo.indicatorSeriesMap)) {
+                const line = chart.addLineSeries({
+                    color: indSeries.options().color,
+                    lineWidth: indSeries.options().lineWidth,
+                    title: indName
+                });
+                line.setData(indSeries.data());
+            }
+        }
+    }
+    
+    // Store in state so we can route updates
+    state.expandedChart = chart;
+    state.expandedCandles = candleSeries;
+    state.expandedTf = tf;
+    
+    modal.classList.add('show');
+    
+    // Force a resize after rendering
+    setTimeout(() => {
+        chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
+    }, 50);
+}
+
+function closeExpandedChart() {
+    const modal = document.getElementById('chart-modal');
+    modal.classList.remove('show');
+    
+    if (state.expandedChart) {
+        state.expandedChart.remove();
+        state.expandedChart = null;
+        state.expandedCandles = null;
+        state.expandedTf = null;
+    }
+}
+
+// Bind modal close button
+document.addEventListener('DOMContentLoaded', () => {
+    const closeBtn = document.getElementById('close-modal-btn');
+    if (closeBtn) closeBtn.addEventListener('click', closeExpandedChart);
+});

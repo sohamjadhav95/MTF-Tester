@@ -42,32 +42,6 @@ class EMAConfig(StrategyConfig):
         description="Trade Direction",
     )
 
-    # SL / TP Settings
-    sl_type: Literal["fixed_rr", "candle_low", "atr"] = Field(
-        "fixed_rr",
-        description="Stop Loss Type",
-    )
-    risk_reward_ratio: float = Field(
-        2.0, ge=0.1, le=20.0,
-        description="Risk / Reward Ratio (TP = SL distance × R/R)",
-        json_schema_extra={"step": 0.1},
-    )
-    sl_pips: int = Field(
-        20, ge=1, le=1000,
-        description="Stop Loss (pips) — used by fixed_rr",
-        json_schema_extra={"step": 1, "x-visible-when": {"sl_type": ["fixed_rr"]}},
-    )
-    atr_period: int = Field(
-        14, ge=2, le=200,
-        description="ATR Period — used by atr",
-        json_schema_extra={"step": 1, "x-visible-when": {"sl_type": ["atr"]}},
-    )
-    atr_sl_multiplier: float = Field(
-        1.5, ge=0.1, le=10.0,
-        description="ATR SL Multiplier — SL = ATR × this value",
-        json_schema_extra={"step": 0.1, "x-visible-when": {"sl_type": ["atr"]}},
-    )
-
 
 # ─── Strategy ──────────────────────────────────────────────────
 class EMACrossover(BaseStrategy):
@@ -86,8 +60,7 @@ class EMACrossover(BaseStrategy):
     name = "EMA Crossover"
     description = (
         "Generates signals based on the crossover of two Exponential "
-        "Moving Averages (fast & slow). Configurable SL/TP modes: "
-        "fixed R/R, entry candle low/high, or ATR-based."
+        "Moving Averages (fast & slow). No SL/TP — pure signal only."
     )
     config_model = EMAConfig
 
@@ -110,89 +83,15 @@ class EMACrossover(BaseStrategy):
 
         return ema
 
-    # ─── ATR Calculation ────────────────────────────────────────
-    def _compute_atr(self, data: pd.DataFrame, period: int) -> np.ndarray:
-        """Wilder's ATR (same as MT5 / TradingView)."""
-        high = data["high"].values.astype(float)
-        low = data["low"].values.astype(float)
-        close = data["close"].values.astype(float)
-        n = len(close)
-
-        tr = np.full(n, np.nan)
-        for i in range(1, n):
-            tr[i] = max(
-                high[i] - low[i],
-                abs(high[i] - close[i - 1]),
-                abs(low[i] - close[i - 1]),
-            )
-        tr[0] = high[0] - low[0]
-
-        atr = np.full(n, np.nan)
-        if n >= period:
-            atr[period - 1] = np.mean(tr[:period])
-            for i in range(period, n):
-                atr[i] = (atr[i - 1] * (period - 1) + tr[i]) / period
-
-        return atr
-
-    # ─── SL / TP Calculation ────────────────────────────────────
-    def _calc_sl_tp(
-        self,
-        direction: str,
-        entry_price: float,
-        bar_low: float,
-        bar_high: float,
-        atr_val: float,
-    ):
-        """Compute (sl_price, tp_price) based on sl_type setting."""
-        cfg = self.config
-        pip_value = getattr(self, "_pip_value", 0.0001)
-
-        if cfg.sl_type == "fixed_rr":
-            sl_distance = cfg.sl_pips * pip_value
-            if direction == "BUY":
-                sl = entry_price - sl_distance
-                tp = entry_price + sl_distance * cfg.risk_reward_ratio
-            else:
-                sl = entry_price + sl_distance
-                tp = entry_price - sl_distance * cfg.risk_reward_ratio
-
-        elif cfg.sl_type == "candle_low":
-            if direction == "BUY":
-                sl = bar_low - pip_value
-                sl_distance = entry_price - sl
-                tp = entry_price + sl_distance * cfg.risk_reward_ratio
-            else:
-                sl = bar_high + pip_value
-                sl_distance = sl - entry_price
-                tp = entry_price - sl_distance * cfg.risk_reward_ratio
-
-        elif cfg.sl_type == "atr":
-            if not np.isnan(atr_val) and atr_val > 0:
-                sl_distance = atr_val * cfg.atr_sl_multiplier
-            else:
-                sl_distance = pip_value * 20  # fallback: 20 pips
-            if direction == "BUY":
-                sl = entry_price - sl_distance
-                tp = entry_price + sl_distance * cfg.risk_reward_ratio
-            else:
-                sl = entry_price + sl_distance
-                tp = entry_price - sl_distance * cfg.risk_reward_ratio
-
-        else:
-            return None, None
-
-        return round(sl, 6), round(tp, 6)
 
     # ─── on_bar ─────────────────────────────────────────────────
     def on_bar(self, index: int, data: pd.DataFrame):
         """
         Generate signal based on EMA crossover.
-        Returns either 'HOLD' or a tuple (signal, sl_price, tp_price).
+        Returns either 'HOLD', 'BUY', or 'SELL'.
         """
         cfg = self.config
-        atr_period = cfg.atr_period if cfg.sl_type == "atr" else 14
-        min_bars = max(cfg.fast_period, cfg.slow_period, atr_period if cfg.sl_type == "atr" else 0) + 1
+        min_bars = max(cfg.fast_period, cfg.slow_period) + 1
 
         if len(data) < min_bars:
             return "HOLD"
@@ -214,23 +113,11 @@ class EMACrossover(BaseStrategy):
         cross_above = prev_fast <= prev_slow and curr_fast > curr_slow
         cross_below = prev_fast >= prev_slow and curr_fast < curr_slow
 
-        entry_price = float(data["close"].iloc[index])
-        bar_low = float(data["low"].iloc[index])
-        bar_high = float(data["high"].iloc[index])
-
-        # ATR value at current bar (if needed)
-        atr_val = 0.0
-        if cfg.sl_type == "atr":
-            atr_arr = self._compute_atr(data, atr_period)
-            atr_val = float(atr_arr[index]) if not np.isnan(atr_arr[index]) else 0.0
-
         if cross_above and cfg.trade_direction in ("both", "long_only"):
-            sl, tp = self._calc_sl_tp("BUY", entry_price, bar_low, bar_high, atr_val)
-            return ("BUY", sl, tp)
+            return "BUY"
 
         if cross_below and cfg.trade_direction in ("both", "short_only"):
-            sl, tp = self._calc_sl_tp("SELL", entry_price, bar_low, bar_high, atr_val)
-            return ("SELL", sl, tp)
+            return "SELL"
 
         return "HOLD"
 

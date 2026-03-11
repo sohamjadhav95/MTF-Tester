@@ -15,6 +15,7 @@ active_websockets: list[WebSocket] = []
 mtf_task: asyncio.Task = None
 mtf_engine: MTFLiveEngine = None
 mtf_provider_ref: DataProvider = None
+main_loop: asyncio.AbstractEventLoop = None
 
 class MTFStartRequest(BaseModel):
     symbol: str
@@ -31,7 +32,20 @@ async def websocket_endpoint(websocket: WebSocket):
         while True:
             data = await websocket.receive_text()
     except WebSocketDisconnect:
-        active_websockets.remove(websocket)
+        if websocket in active_websockets:
+            active_websockets.remove(websocket)
+
+async def _broadcast(payload: dict):
+    for ws in list(active_websockets):
+        try:
+            await ws.send_json(payload)
+        except Exception:
+            if ws in active_websockets:
+                active_websockets.remove(ws)
+
+def broadcast_callback(payload: dict):
+    if main_loop and main_loop.is_running():
+        asyncio.run_coroutine_threadsafe(_broadcast(payload), main_loop)
 
 async def _mtf_polling_loop():
     global mtf_engine, mtf_provider_ref
@@ -43,18 +57,10 @@ async def _mtf_polling_loop():
                 if signals:
                     for sig in signals:
                         payload = {"type": "signal", "data": sig}
-                        for ws in active_websockets:
-                            try:
-                                await ws.send_json(payload)
-                            except Exception:
-                                pass
+                        await _broadcast(payload)
                 if updates:
                     payload = {"type": "bar_updates", "data": updates}
-                    for ws in active_websockets:
-                        try:
-                            await ws.send_json(payload)
-                        except Exception:
-                            pass
+                    await _broadcast(payload)
             await asyncio.sleep(1.0)
         except asyncio.CancelledError:
             break
@@ -64,7 +70,9 @@ async def _mtf_polling_loop():
 
 @router.post("/start")
 async def start_mtf(req: MTFStartRequest):
-    global mtf_engine, mtf_task, mtf_provider_ref
+    global mtf_engine, mtf_task, mtf_provider_ref, main_loop
+    
+    main_loop = asyncio.get_event_loop()
     
     if req.market_type == "crypto":
         await ensure_connected()
@@ -81,16 +89,20 @@ async def start_mtf(req: MTFStartRequest):
         raise HTTPException(status_code=404, detail=f"Strategy {req.strategy} not found.")
         
     try:
+        if mtf_engine:
+            mtf_engine.stop()
+            
         mtf_engine = MTFLiveEngine(
             symbol=req.symbol,
             timeframes=req.timeframes,
             strategy_name=req.strategy,
             settings=req.settings,
-            provider=provider
+            provider=provider,
+            broadcast_callback=broadcast_callback
         )
         
         # Pre-fetch recent data and signals so UI can render immediately
-        historical_candles, historical_signals = await asyncio.to_thread(mtf_engine.get_historical_context)
+        historical_candles, historical_signals, historical_indicators = await asyncio.to_thread(mtf_engine.get_historical_context)
         
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -102,7 +114,8 @@ async def start_mtf(req: MTFStartRequest):
         "success": True, 
         "message": "MTF Engine started",
         "historical_candles": historical_candles,
-        "historical_signals": historical_signals
+        "historical_signals": historical_signals,
+        "historical_indicators": historical_indicators
     }
 
 @router.post("/stop")
@@ -111,5 +124,7 @@ async def stop_mtf():
     if mtf_task:
         mtf_task.cancel()
         mtf_task = None
+    if mtf_engine:
+        mtf_engine.stop()
     mtf_engine = None
     return {"success": True, "message": "MTF Engine stopped"}

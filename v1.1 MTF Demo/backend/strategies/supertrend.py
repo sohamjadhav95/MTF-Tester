@@ -48,27 +48,6 @@ class SupertrendConfig(StrategyConfig):
         description="Trade Direction",
     )
 
-    # SL / TP
-    sl_type: Literal["fixed_rr", "candle_low", "atr"] = Field(
-        "candle_low",
-        description="Stop Loss Type",
-    )
-    risk_reward_ratio: float = Field(
-        2.0, ge=0.1, le=20.0,
-        description="Risk / Reward Ratio  (TP = SL distance × R/R)",
-        json_schema_extra={"step": 0.1},
-    )
-    sl_pips: int = Field(
-        20, ge=1, le=1000,
-        description="Stop Loss (pips) — fixed_rr only",
-        json_schema_extra={"step": 1, "x-visible-when": {"sl_type": ["fixed_rr"]}},
-    )
-    atr_sl_multiplier: float = Field(
-        1.5, ge=0.1, le=10.0,
-        description="ATR SL Multiplier  (SL = ATR × value) — atr only",
-        json_schema_extra={"step": 0.1, "x-visible-when": {"sl_type": ["atr"]}},
-    )
-
 
 # ─── Strategy ──────────────────────────────────────────────────
 class Supertrend(BaseStrategy):
@@ -82,7 +61,7 @@ class Supertrend(BaseStrategy):
     description = (
         "Classic Supertrend indicator (TV Pine Script logic). "
         "BUY when Supertrend flips to green, SELL when it flips to red. "
-        "Three SL modes: fixed R/R, entry-candle low/high, or ATR-based."
+        "No SL/TP — pure signal only."
     )
     config_model = SupertrendConfig
 
@@ -169,44 +148,6 @@ class Supertrend(BaseStrategy):
 
         return up, dn, trend
 
-    # ─── SL / TP ────────────────────────────────────────────────
-    def _calc_sl_tp(
-        self,
-        direction: str,
-        entry: float,
-        bar_low: float,
-        bar_high: float,
-        atr_val: float,
-    ):
-        cfg = self.config
-        pip = getattr(self, "_pip_value", 0.0001)
-
-        if cfg.sl_type == "fixed_rr":
-            dist = cfg.sl_pips * pip
-            sl = entry - dist if direction == "BUY" else entry + dist
-            tp = entry + dist * cfg.risk_reward_ratio if direction == "BUY" else entry - dist * cfg.risk_reward_ratio
-
-        elif cfg.sl_type == "candle_low":
-            if direction == "BUY":
-                sl = bar_low - pip
-                dist = entry - sl
-                tp = entry + dist * cfg.risk_reward_ratio
-            else:
-                sl = bar_high + pip
-                dist = sl - entry
-                tp = entry - dist * cfg.risk_reward_ratio
-
-        elif cfg.sl_type == "atr":
-            mult = cfg.atr_sl_multiplier
-            dist = atr_val * mult if (not np.isnan(atr_val) and atr_val > 0) else pip * 20
-            sl = entry - dist if direction == "BUY" else entry + dist
-            tp = entry + dist * cfg.risk_reward_ratio if direction == "BUY" else entry - dist * cfg.risk_reward_ratio
-
-        else:
-            return None, None
-
-        return round(sl, 6), round(tp, 6)
-
     # ─── on_bar ─────────────────────────────────────────────────
     def on_bar(self, index: int, data: pd.DataFrame):
         cfg = self.config
@@ -225,23 +166,11 @@ class Supertrend(BaseStrategy):
         if not buy_signal and not sell_signal:
             return "HOLD"
 
-        entry = float(data["close"].iloc[index])
-        bar_low = float(data["low"].iloc[index])
-        bar_high = float(data["high"].iloc[index])
-
-        high_arr = data["high"].values.astype(float)
-        low_arr = data["low"].values.astype(float)
-        close_arr = data["close"].values.astype(float)
-        atr_arr = self._compute_atr(high_arr, low_arr, close_arr, cfg.atr_period)
-        atr_val = float(atr_arr[index]) if not np.isnan(atr_arr[index]) else 0.0
-
         if buy_signal and cfg.trade_direction in ("both", "long_only"):
-            sl, tp = self._calc_sl_tp("BUY", entry, bar_low, bar_high, atr_val)
-            return ("BUY", sl, tp)
+            return "BUY"
 
         if sell_signal and cfg.trade_direction in ("both", "short_only"):
-            sl, tp = self._calc_sl_tp("SELL", entry, bar_low, bar_high, atr_val)
-            return ("SELL", sl, tp)
+            return "SELL"
 
         return "HOLD"
 

@@ -116,7 +116,18 @@
 
     <!-- Lightweight Charts CDN -->
     <script src="https://unpkg.com/lightweight-charts@4.2.2/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="app.js"></script>
+    <!-- Chart Modal Overlay -->
+  <div id="chart-modal" class="chart-modal">
+    <div class="chart-modal-content">
+      <div class="chart-modal-header">
+        <h2 id="modal-title">Chart</h2>
+        <button id="close-modal-btn" class="close-btn">&times;</button>
+      </div>
+      <div id="modal-chart-container" class="modal-chart-container"></div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
 </body>
 
 </html>
