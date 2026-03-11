@@ -26,7 +26,8 @@ class MTFLiveEngine:
         strategy_name: str, 
         settings: Dict, 
         provider: DataProvider,
-        broadcast_callback: Optional[Callable] = None
+        broadcast_callback: Optional[Callable] = None,
+        start_time: Optional[str] = None
     ):
         self.symbol = symbol
         self.timeframes = timeframes
@@ -57,6 +58,14 @@ class MTFLiveEngine:
         
         # Detect Binance vs MT5 (Binance has a _session in its provider)
         self.is_binance = hasattr(self.provider, "_session")
+        
+        self.start_time_dt = None
+        if start_time:
+            from dateutil.parser import parse
+            try:
+                self.start_time_dt = parse(start_time).replace(tzinfo=None)
+            except Exception:
+                pass
         
     def _push(self, payload: dict):
         if self.broadcast_callback:
@@ -186,7 +195,15 @@ class MTFLiveEngine:
         
         for tf in self.timeframes:
             try:
-                df = self.provider.fetch_latest_bars(self.symbol, tf, self._HISTORY_BARS)
+                if self.start_time_dt:
+                    df = self.provider.fetch_ohlcv(
+                        self.symbol, 
+                        tf, 
+                        self.start_time_dt, 
+                        datetime.utcnow()
+                    )
+                else:
+                    df = self.provider.fetch_latest_bars(self.symbol, tf, self._HISTORY_BARS)
             except Exception as e:
                 continue
                 
@@ -226,7 +243,11 @@ class MTFLiveEngine:
                 tf_indicators[name] = fmt_points
             historical_indicators[tf] = tf_indicators
             
-            start_idx = max(0, len(df) - 50)  # evaluate last 50 bars for recent signals
+            if self.start_time_dt:
+                start_idx = 0
+            else:
+                start_idx = max(0, len(df) - 50)  # evaluate last 50 bars for recent signals
+                
             for i in range(start_idx, len(df)):
                 try:
                     raw_signal = strategy.on_bar(i, df)

@@ -23,6 +23,7 @@ class MTFStartRequest(BaseModel):
     strategy: str
     settings: dict = {}
     market_type: str = "forex"
+    start_time: Optional[str] = None
 
 @router.websocket("/stream")
 async def websocket_endpoint(websocket: WebSocket):
@@ -98,7 +99,8 @@ async def start_mtf(req: MTFStartRequest):
             strategy_name=req.strategy,
             settings=req.settings,
             provider=provider,
-            broadcast_callback=broadcast_callback
+            broadcast_callback=broadcast_callback,
+            start_time=req.start_time
         )
         
         # Pre-fetch recent data and signals so UI can render immediately

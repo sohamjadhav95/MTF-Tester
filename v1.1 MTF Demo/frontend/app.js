@@ -14,6 +14,7 @@ const state = {
     symbol: '', timeframes: ['M5', 'M15', 'H1'],
     strategy: '', settings: {},
     initialBalance: 10000, lotSize: 0.1,
+    startTime: ''
   },
   scannerActive: false,
 };
@@ -110,6 +111,20 @@ document.addEventListener('DOMContentLoaded', () => {
   renderMT5Section();
   renderConfigCols();
 });
+
+function toggleConfig() {
+    const cols = document.getElementById('config-cols');
+    const btn = document.getElementById('config-toggle-btn');
+    if (!cols) return;
+    
+    if (cols.classList.contains('collapsed')) {
+        cols.classList.remove('collapsed');
+        if(btn) btn.textContent = '_';
+    } else {
+        cols.classList.add('collapsed');
+        if(btn) btn.textContent = '+';
+    }
+}
 
 // ─── Market Type ────────────────────────────────────────────────
 async function setMarketType(type) {
@@ -356,6 +371,12 @@ function renderRightColumn() {
       <h3 class="config-section-title">Backtest Settings</h3>
       <div class="settings-grid">
         <div class="setting-item">
+          <label class="setting-label">Start Date & Time (Optional)</label>
+          <input type="datetime-local" value="${state.config.startTime}" step="1"
+            onchange="state.config.startTime=this.value" />
+          <span class="setting-range">Limits historical fetch.</span>
+        </div>
+        <div class="setting-item">
           <label class="setting-label">Initial Balance</label>
           <input type="number" value="${state.config.initialBalance}" min="100" step="100"
             onchange="state.config.initialBalance=parseFloat(this.value)" />
@@ -537,15 +558,22 @@ async function toggleScanner() {
     
     // Start backend Engine
     try {
-      const resp = await api('/api/mtf/start', {
-        method: 'POST',
-        body: JSON.stringify({
+      const payload = {
           symbol: c.symbol,
           timeframes: c.timeframes,
           strategy: c.strategy,
           settings: c.settings || {},
           market_type: state.marketType
-        }),
+      };
+      
+      if (c.startTime) {
+          // Convert local datetime-local value to ISO UTC string if possible, or just send it
+          payload.start_time = new Date(c.startTime).toISOString();
+      }
+
+      const resp = await api('/api/mtf/start', {
+        method: 'POST',
+        body: JSON.stringify(payload),
       });
       
       state.scannerActive = true;
@@ -554,6 +582,14 @@ async function toggleScanner() {
       btn.classList.add('active');
       btn.style.background = 'var(--loss-red)';
       btn.style.boxShadow = 'none';
+      
+      // Auto-collapse config panel to maximize view
+      const cols = document.getElementById('config-cols');
+      const toggle = document.getElementById('config-toggle-btn');
+      if (cols && !cols.classList.contains('collapsed')) {
+          cols.classList.add('collapsed');
+          if(toggle) toggle.textContent = '+';
+      }
       
       initScannerUI(resp.historical_candles, resp.historical_signals, resp.historical_indicators);
       connectWebSocket();

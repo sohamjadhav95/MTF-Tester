@@ -43,6 +43,15 @@
             <div class="sidebar-section" id="mt5-section">
                 <!-- Filled by JS -->
             </div>
+            
+            <!-- Signal Report in Sidebar -->
+            <div class="sidebar-section" id="sidebar-report-section" style="display:none; flex: 1; display: flex; flex-direction: column; min-height: 0; padding-bottom: 0;">
+                <h3 style="margin-bottom: 12px; font-size: 0.95rem; color: var(--text-primary); font-weight: 600;">Signal Report Card</h3>
+                <div class="report-card" id="report-card" style="flex: 1; overflow-y: auto;">
+                    <!-- Signals log -->
+                    <div class="report-empty">Waiting for signals...</div>
+                </div>
+            </div>
 
             <!-- Sidebar Footer — Run Backtest -->
             <div class="sidebar-footer">
@@ -57,9 +66,12 @@
         <main class="main-content">
             <div class="content-scroll">
                 <!-- Configuration — Two columns -->
-                <section class="section">
+                <section class="section" id="config-section">
                     <div class="section-header">
                         <h2 class="section-title">Configuration</h2>
+                        <div class="section-actions">
+                             <button class="btn btn-secondary" onclick="toggleConfig()" id="config-toggle-btn" title="Minimize/Expand">_</button>
+                        </div>
                     </div>
                     <!-- Two-column config layout -->
                     <div class="config-cols" id="config-cols">
@@ -87,15 +99,6 @@
                         <div class="mtf-charts-panel">
                             <div id="mtf-charts-container" class="mtf-charts-container">
                                 <!-- Dynamically filled by JS -->
-                            </div>
-                        </div>
-
-                        <!-- Report Card -->
-                        <div class="mtf-report-panel">
-                            <h3 style="margin-bottom: 12px; font-size: 1rem;">Signal Report Card</h3>
-                            <div class="report-card" id="report-card">
-                                <!-- Signals log -->
-                                <div class="report-empty">Waiting for signals...</div>
                             </div>
                         </div>
                     </div>
