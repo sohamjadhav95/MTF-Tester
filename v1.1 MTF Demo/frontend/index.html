@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Professional trading strategy backtesting application with MT5 integration" />
+    <title>Strategy Tester — Backtest Trading Strategies</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+</head>
+
+<body>
+    <div class="app">
+        <!-- ─── Sidebar ─── -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <span class="logo-icon">📊</span>
+                    <div>
+                        <h1 class="logo-title">MTF Scanner</h1>
+                        <span class="logo-sub">Real-Time Strategy Signals</span>
+                    </div>
+                </div>
+                <!-- Theme Toggle -->
+                <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle dark/light mode">
+                    <span id="theme-icon">☀️</span>
+                </button>
+            </div>
+
+            <!-- Market Type Toggle -->
+            <div class="market-toggle">
+                <button class="toggle-btn active" id="btn-forex" onclick="setMarketType('forex')">Forex</button>
+                <button class="toggle-btn" id="btn-crypto" onclick="setMarketType('crypto')">
+                    Crypto
+                </button>
+            </div>
+
+            <!-- MT5 Login -->
+            <div class="sidebar-section" id="mt5-section">
+                <!-- Filled by JS -->
+            </div>
+
+            <!-- Sidebar Footer — Run Backtest -->
+            <div class="sidebar-footer">
+                <div class="inline-error" id="error-box" style="display:none"></div>
+                <button class="btn btn-run" id="btn-run" onclick="toggleScanner()" disabled>
+                    <span class="run-icon">▶</span> Run MTF Scanner
+                </button>
+            </div>
+        </aside>
+
+        <!-- ─── Main Content ─── -->
+        <main class="main-content">
+            <div class="content-scroll">
+                <!-- Configuration — Two columns -->
+                <section class="section">
+                    <div class="section-header">
+                        <h2 class="section-title">Configuration</h2>
+                    </div>
+                    <!-- Two-column config layout -->
+                    <div class="config-cols" id="config-cols">
+                        <!-- Left column: Asset, TF, Range, Strategy selector -->
+                        <div class="config-col config-col-left" id="config-col-left">
+                            <!-- Filled by JS -->
+                        </div>
+                        <!-- Right column: Strategy Settings + Backtest Settings -->
+                        <div class="config-col config-col-right" id="config-col-right">
+                            <!-- Filled by JS -->
+                        </div>
+                    </div>
+                </section>
+
+                <!-- MTF Scanner Live View -->
+                <section class="section results-section" id="scanner-section" style="display:none">
+                    <!-- Scanner Header -->
+                    <div id="scanner-header" class="results-header">
+                        <h2 class="results-title">Live MTF Signals <span class="live-pulse"></span></h2>
+                        <div class="results-meta" id="scanner-meta"></div>
+                    </div>
+                    
+                    <div class="mtf-layout">
+                        <!-- Chart Grid Panel -->
+                        <div class="mtf-charts-panel">
+                            <div id="mtf-charts-container" class="mtf-charts-container">
+                                <!-- Dynamically filled by JS -->
+                            </div>
+                        </div>
+
+                        <!-- Report Card -->
+                        <div class="mtf-report-panel">
+                            <h3 style="margin-bottom: 12px; font-size: 1rem;">Signal Report Card</h3>
+                            <div class="report-card" id="report-card">
+                                <!-- Signals log -->
+                                <div class="report-empty">Waiting for signals...</div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Loading -->
+                <div class="backtest-loading" id="loading-overlay" style="display:none">
+                    <div class="loading-content">
+                        <div class="loading-header">
+                            <span class="loading-text" id="loading-title">Connecting...</span>
+                        </div>
+                        <p class="loading-sub" id="loading-sub">Connecting live data feed...</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Lightweight Charts CDN -->
+    <script src="https://unpkg.com/lightweight-charts@4.2.2/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="app.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Professional trading strategy backtesting application with MT5 integration" />
+    <title>Strategy Tester — Backtest Trading Strategies</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+</head>
+
+<body>
+    <div class="app">
+        <!-- ─── Sidebar ─── -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <span class="logo-icon">📊</span>
+                    <div>
+                        <h1 class="logo-title">Strategy Tester</h1>
+                        <span class="logo-sub">Backtesting Engine</span>
+                    </div>
+                </div>
+                <!-- Theme Toggle -->
+                <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle dark/light mode">
+                    <span id="theme-icon">☀️</span>
+                </button>
+            </div>
+
+            <!-- Market Type Toggle -->
+            <div class="market-toggle">
+                <button class="toggle-btn active" id="btn-forex" onclick="setMarketType('forex')">Forex</button>
+                <button class="toggle-btn" id="btn-crypto" onclick="setMarketType('crypto')">
+                    Crypto
+                </button>
+            </div>
+
+            <!-- MT5 Login -->
+            <div class="sidebar-section" id="mt5-section">
+                <!-- Filled by JS -->
+            </div>
+
+            <!-- Sidebar Footer — Run Backtest -->
+            <div class="sidebar-footer">
+                <div class="inline-error" id="error-box" style="display:none"></div>
+                <button class="btn btn-run" id="btn-run" onclick="runBacktest()" disabled>
+                    <span class="run-icon">▶</span> Run Backtest
+                </button>
+            </div>
+        </aside>
+
+        <!-- ─── Main Content ─── -->
+        <main class="main-content">
+            <div class="content-scroll">
+                <!-- Configuration — Two columns -->
+                <section class="section">
+                    <div class="section-header">
+                        <h2 class="section-title">Configuration</h2>
+                    </div>
+                    <!-- Two-column config layout -->
+                    <div class="config-cols" id="config-cols">
+                        <!-- Left column: Asset, TF, Range, Strategy selector -->
+                        <div class="config-col config-col-left" id="config-col-left">
+                            <!-- Filled by JS -->
+                        </div>
+                        <!-- Right column: Strategy Settings + Backtest Settings -->
+                        <div class="config-col config-col-right" id="config-col-right">
+                            <!-- Filled by JS -->
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Results -->
+                <section class="section results-section" id="results-section" style="display:none">
+                    <!-- Results Header -->
+                    <div id="results-header"></div>
+                    <!-- PnL Hero -->
+                    <div id="pnl-hero"></div>
+                    <!-- Metrics Grid -->
+                    <div id="metrics-grid" class="metrics-grid"></div>
+
+                    <!-- Chart Panel with tabs -->
+                    <div class="chart-panel">
+                        <div class="chart-tabs">
+                            <button class="chart-tab active" id="tab-price" onclick="switchChartTab('price')">
+                                📈 Price Chart
+                            </button>
+                            <button class="chart-tab" id="tab-equity" onclick="switchChartTab('equity')">
+                                💰 Equity Curve
+                            </button>
+                        </div>
+
+                        <!-- Price / Trade Chart -->
+                        <div id="price-chart-wrap" class="chart-wrap">
+                            <div class="chart-toolbar-row">
+                                <div class="chart-legend-row">
+                                    <span class="legend-item"><span class="legend-dot"
+                                            style="background:#22c55e"></span>Buy Entry</span>
+                                    <span class="legend-item"><span class="legend-dot"
+                                            style="background:#ef4444"></span>Sell Entry</span>
+                                    <span class="legend-item"><span class="legend-dot"
+                                            style="background:#f59e0b;border-radius:50%"></span>Exit</span>
+                                </div>
+                                <div class="chart-tools">
+                                    <button class="chart-tool-btn" id="btn-measure" onclick="toggleMeasureTool()"
+                                        title="Measure (click &amp; drag on chart)">
+                                        📏 <span>Measure</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <!-- Measurement overlay — sits on top of chart canvas -->
+                            <div id="measure-overlay" class="measure-overlay" style="display:none">
+                                <canvas id="measure-canvas"></canvas>
+                                <div id="measure-tooltip" class="measure-tooltip" style="display:none"></div>
+                            </div>
+                            <div id="price-chart" class="chart-canvas"></div>
+                        </div>
+
+                        <!-- Equity Curve -->
+                        <div id="equity-chart-wrap" class="chart-wrap" style="display:none">
+                            <div class="chart-legend-row">
+                                <span class="legend-item"><span class="legend-dot"
+                                        style="background:#3b82f6"></span>Equity</span>
+                                <span class="legend-item"><span class="legend-dot"
+                                        style="background:#8b5cf6"></span>Balance</span>
+                            </div>
+                            <div id="equity-chart" class="chart-canvas"></div>
+                        </div>
+                    </div>
+
+                    <!-- Trade Log -->
+                    <div id="trade-log" class="trade-log"></div>
+                </section>
+
+                <!-- Loading -->
+                <div class="backtest-loading" id="loading-overlay" style="display:none">
+                    <div class="loading-content">
+                        <div class="loading-header">
+                            <span class="loading-text" id="loading-title">Running backtest...</span>
+                            <span class="loading-pct" id="loading-pct">0%</span>
+                        </div>
+                        <div class="progress-container">
+                            <div class="progress-bar" id="progress-bar"></div>
+                        </div>
+                        <p class="loading-sub" id="loading-sub">Initializing...</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Lightweight Charts CDN -->
+    <script src="https://unpkg.com/lightweight-charts@4.2.2/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="app.js"></script>
+</body>
+
+</html>
