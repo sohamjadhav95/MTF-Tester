@@ -12,6 +12,7 @@ const state = {
   marketType: 'forex',   // 'forex' | 'crypto'
   config: {
     symbol: '', timeframe: 'H1', dateFrom: '', dateTo: '',
+    timeOfDayStart: '', timeOfDayEnd: '',
     strategy: '', settings: {},
     initialBalance: 10000, lotSize: 0.1,
   },
@@ -326,6 +327,16 @@ function renderConfigCols() {
           <input type="datetime-local" id="date-to" value="${state.config.dateTo}" onchange="state.config.dateTo=this.value" />
         </div>
       </div>
+      <div class="date-row" style="margin-top: 10px;">
+        <div class="form-group">
+          <label>Time of Day Start (Optional)</label>
+          <input type="time" id="time-from" value="${state.config.timeOfDayStart}" onchange="state.config.timeOfDayStart=this.value" />
+        </div>
+        <div class="form-group">
+          <label>Time of Day End (Optional)</label>
+          <input type="time" id="time-to" value="${state.config.timeOfDayEnd}" onchange="state.config.timeOfDayEnd=this.value" />
+        </div>
+      </div>
     </div>
 
     <!-- Strategy -->
@@ -590,6 +601,8 @@ async function runBacktest() {
         timeframe: c.timeframe,
         date_from: c.dateFrom,
         date_to: c.dateTo,
+        time_of_day_start: c.timeOfDayStart || null,
+        time_of_day_end: c.timeOfDayEnd || null,
         strategy: c.strategy,
         settings: c.settings || {},
         initial_balance: c.initialBalance,

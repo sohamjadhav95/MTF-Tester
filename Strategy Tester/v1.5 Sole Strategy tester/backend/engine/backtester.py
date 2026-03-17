@@ -57,6 +57,30 @@ class Backtester:
                 raw = strategy.on_bar(i, current_data)
 
             signal, sl_price, tp_price = self._parse_signal(raw)
+
+            # ── 2a. Apply Time of Day Filter ────────────────────────────
+            is_allowed = True
+            if self.config.time_of_day_start or self.config.time_of_day_end:
+                current_time = pd.to_datetime(current_bar["time"])
+                t_str = current_time.strftime("%H:%M")
+                start = self.config.time_of_day_start
+                end = self.config.time_of_day_end
+                
+                if start and end:
+                    if start <= end:
+                        is_allowed = start <= t_str <= end
+                    else:
+                        is_allowed = t_str >= start or t_str <= end
+                elif start:
+                    is_allowed = t_str >= start
+                elif end:
+                    is_allowed = t_str <= end
+
+            if not is_allowed:
+                signal = "HOLD"
+                if self.position is not None:
+                    self._close_position_reason(current_bar, self._get_spread(current_bar), i, "time_limit")
+            
             spread_points = self._get_spread(current_bar)
             self._process_signal(signal, current_bar, spread_points, i, sl_price, tp_price)
 

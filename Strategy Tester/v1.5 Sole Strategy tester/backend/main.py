@@ -74,6 +74,8 @@ class BacktestRequest(BaseModel):
     commission_per_lot: float = 0.0
     use_spread_from_data: bool = True
     fixed_spread_points: int = 0
+    time_of_day_start: Optional[str] = None
+    time_of_day_end: Optional[str] = None
 
 
 # ─── MT5 Endpoints ───────────────────────────────────────────
@@ -225,6 +227,8 @@ async def run_backtest(req: BacktestRequest):
         commission_per_lot=req.commission_per_lot,
         use_spread_from_data=req.use_spread_from_data,
         fixed_spread_points=req.fixed_spread_points,
+        time_of_day_start=req.time_of_day_start,
+        time_of_day_end=req.time_of_day_end,
         point=symbol_info.get("point", 0.00001),
         digits=symbol_info.get("digits", 5),
         contract_size=symbol_info.get("trade_contract_size", 100000.0),

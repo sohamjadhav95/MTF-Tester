@@ -56,6 +56,8 @@ class BacktestConfig:
     commission_per_lot: float = 0.0   # per side, in account currency
     use_spread_from_data: bool = True
     fixed_spread_points: int = 0      # used if use_spread_from_data is False
+    time_of_day_start: Optional[str] = None
+    time_of_day_end: Optional[str] = None
 
     # Symbol properties (filled automatically from MT5)
     point: float = 0.00001            # point size (e.g. 0.00001 for 5-digit pairs)
