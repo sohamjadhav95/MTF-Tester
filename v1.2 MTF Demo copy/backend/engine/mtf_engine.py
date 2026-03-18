@@ -1,6 +1,6 @@
 import pandas as pd
 from typing import Dict, List, Optional, Tuple, Any, Callable
-from datetime import datetime
+from datetime import datetime, timezone
 from app.core.registry import auto_discover_strategies
 from app.providers.base_provider import DataProvider
 import threading
@@ -180,7 +180,7 @@ class MTFLiveEngine:
                                 "strategy": self.strategy_name,
                                 "direction": signal_dir,
                                 "price": bar["close"],
-                                "time": datetime.utcnow().isoformat(),
+                                "time": datetime.now(timezone.utc).isoformat(),
                                 "bar_time": bar_time_str,
                             }
                             self._push({"type": "signal", "data": sig})
@@ -200,7 +200,7 @@ class MTFLiveEngine:
                         self.symbol, 
                         tf, 
                         self.start_time_dt, 
-                        datetime.utcnow()
+                        datetime.now(timezone.utc)
                     )
                 else:
                     df = self.provider.fetch_latest_bars(self.symbol, tf, self._HISTORY_BARS)
@@ -351,7 +351,7 @@ class MTFLiveEngine:
                         "strategy": self.strategy_name,
                         "direction": signal_dir,
                         "price": float(df.iloc[current_idx]["close"]),
-                        "time": datetime.utcnow().isoformat(),
+                        "time": datetime.now(timezone.utc).isoformat(),
                         "bar_time": current_time.isoformat(),
                     })
                     
