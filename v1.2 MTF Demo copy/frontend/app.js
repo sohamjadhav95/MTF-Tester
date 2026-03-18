@@ -88,8 +88,8 @@ function getChartColors() {
 }
 
 // ─── Timestamp Utilities (IST = UTC+5:30) ───────────────────────
-const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000; // +5h30m in ms
-const IST_OFFSET_S  = 5.5 * 60 * 60;        // +5h30m in seconds
+const IST_OFFSET_MS = 0; // +5h30m in ms
+const IST_OFFSET_S = 0;        // +5h30m in seconds
 
 function toTs(isoStr) {
   // Convert ISO string → UNIX seconds (keep as UTC for chart; IST shown via localization)
@@ -114,17 +114,17 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function toggleConfig() {
-    const cols = document.getElementById('config-cols');
-    const btn = document.getElementById('config-toggle-btn');
-    if (!cols) return;
-    
-    if (cols.classList.contains('collapsed')) {
-        cols.classList.remove('collapsed');
-        if(btn) btn.textContent = '_';
-    } else {
-        cols.classList.add('collapsed');
-        if(btn) btn.textContent = '+';
-    }
+  const cols = document.getElementById('config-cols');
+  const btn = document.getElementById('config-toggle-btn');
+  if (!cols) return;
+
+  if (cols.classList.contains('collapsed')) {
+    cols.classList.remove('collapsed');
+    if (btn) btn.textContent = '_';
+  } else {
+    cols.classList.add('collapsed');
+    if (btn) btn.textContent = '+';
+  }
 }
 
 // ─── Market Type ────────────────────────────────────────────────
@@ -552,56 +552,56 @@ async function toggleScanner() {
       return;
     }
     errEl.style.display = 'none';
-    
+
     document.getElementById('loading-overlay').style.display = 'flex';
     document.getElementById('loading-title').textContent = 'Connecting...';
     document.getElementById('loading-sub').textContent = 'Initializing MT5 Live Feed...';
-    
+
     // Start backend Engine
     try {
       const payload = {
-          symbol: c.symbol,
-          timeframes: c.timeframes,
-          strategy: c.strategy,
-          settings: c.settings || {},
-          market_type: state.marketType
+        symbol: c.symbol,
+        timeframes: c.timeframes,
+        strategy: c.strategy,
+        settings: c.settings || {},
+        market_type: state.marketType
       };
-      
+
       if (c.startTime) {
-          // Convert local datetime-local value to ISO UTC string if possible, or just send it
-          payload.start_time = new Date(c.startTime).toISOString();
+        // Convert local datetime-local value to ISO UTC string if possible, or just send it
+        payload.start_time = new Date(c.startTime).toISOString();
       }
 
       const resp = await api('/api/mtf/start', {
         method: 'POST',
         body: JSON.stringify(payload),
       });
-      
+
       state.scannerActive = true;
       const btn = document.getElementById('btn-run');
       btn.innerHTML = '<span class="run-icon">⏹</span> Stop MTF Scanner';
       btn.classList.add('active');
       btn.style.background = 'var(--loss-red)';
       btn.style.boxShadow = 'none';
-      
+
       // Auto-collapse config panel to maximize view
       const cols = document.getElementById('config-cols');
       const toggle = document.getElementById('config-toggle-btn');
       if (cols && !cols.classList.contains('collapsed')) {
-          cols.classList.add('collapsed');
-          if(toggle) toggle.textContent = '+';
+        cols.classList.add('collapsed');
+        if (toggle) toggle.textContent = '+';
       }
-      
+
       initScannerUI(resp.historical_candles, resp.historical_signals, resp.historical_indicators);
       connectWebSocket();
       if (state.marketType !== 'crypto') initTradingPanel();
-      
+
       // Collapse MT5 login panel and show signal report panel fully
       const mt5Sec = document.getElementById('mt5-section');
       if (mt5Sec) mt5Sec.style.display = 'none';
       const reportSec = document.getElementById('sidebar-report-section');
       if (reportSec) reportSec.style.display = 'flex';
-      
+
       document.getElementById('loading-overlay').style.display = 'none';
     } catch (err) {
       document.getElementById('loading-overlay').style.display = 'none';
@@ -610,26 +610,26 @@ async function toggleScanner() {
     }
   } else {
     // Stop
-    try { await api('/api/mtf/stop', { method: 'POST' }); } catch(err){}
+    try { await api('/api/mtf/stop', { method: 'POST' }); } catch (err) { }
     state.scannerActive = false;
     const btn = document.getElementById('btn-run');
     btn.innerHTML = '<span class="run-icon">▶</span> Run MTF Scanner';
     btn.classList.remove('active');
     btn.style.background = '';
-    
+
     if (wsConnection) {
       wsConnection.close();
       wsConnection = null;
     }
-    
+
     destroyTradingPanel();
-    
+
     // Restore MT5 login panel and hide signal report panel
     const mt5Sec = document.getElementById('mt5-section');
     if (mt5Sec) mt5Sec.style.display = '';
     const reportSec = document.getElementById('sidebar-report-section');
     if (reportSec) reportSec.style.display = 'none';
-    
+
     const pulse = document.querySelector('.live-pulse');
     if (pulse) pulse.style.display = 'none';
   }
@@ -645,19 +645,19 @@ function initScannerUI(histCandles, histSignals, histIndicators) {
   `;
   const pulse = document.querySelector('.live-pulse');
   if (pulse) pulse.style.display = 'inline-block';
-  
+
   const container = document.getElementById('mtf-charts-container');
   container.innerHTML = '';
   document.getElementById('report-card').innerHTML = '<div class="report-empty">Waiting for live signals...</div>';
-  
+
   // Clean old charts if any
-  for(let tf in mtfCharts) {
-      if(mtfCharts[tf].chartInst) mtfCharts[tf].chartInst.remove();
+  for (let tf in mtfCharts) {
+    if (mtfCharts[tf].chartInst) mtfCharts[tf].chartInst.remove();
   }
   mtfCharts = {};
-  
+
   const colors = getChartColors();
-  
+
   // Create charts in order of timeframes initially
   state.config.timeframes.forEach(tf => {
     // Create DOM
@@ -672,7 +672,7 @@ function initScannerUI(histCandles, histSignals, histIndicators) {
       <div class="mtf-chart-canvas" id="canvas-${tf}"></div>
     `;
     container.appendChild(wrap);
-    
+
     // Create Chart
     const cdt = document.getElementById(`canvas-${tf}`);
     const chart = LightweightCharts.createChart(cdt, {
@@ -691,231 +691,231 @@ function initScannerUI(histCandles, histSignals, histIndicators) {
         },
       },
     });
-    
+
     const candleSeries = chart.addCandlestickSeries({
       upColor: '#22c55e', downColor: '#ef4444',
       borderUpColor: '#22c55e', borderDownColor: '#ef4444',
       wickUpColor: '#22c55e', wickDownColor: '#ef4444',
     });
-    
+
     // Add multiple line series for indicators
     const indicatorSeriesMap = {};
     if (histIndicators && histIndicators[tf]) {
       const lineColors = ['#3b82f6', '#f59e0b', '#8b5cf6', '#06b6d4'];
       let colorIdx = 0;
-      
+
       for (const [indName, dataPoints] of Object.entries(histIndicators[tf])) {
-         const line = chart.addLineSeries({
-             color: lineColors[colorIdx % lineColors.length],
-             lineWidth: 1,
-             title: indName
-         });
-         
-         const sortedPts = [...dataPoints]
-             .map(p => ({ time: _toTs(p.time), value: p.value }))
-             .sort((a,b) => a.time - b.time);
-             
-         line.setData(sortedPts);
-         indicatorSeriesMap[indName] = line;
-         colorIdx++;
+        const line = chart.addLineSeries({
+          color: lineColors[colorIdx % lineColors.length],
+          lineWidth: 1,
+          title: indName
+        });
+
+        const sortedPts = [...dataPoints]
+          .map(p => ({ time: _toTs(p.time), value: p.value }))
+          .sort((a, b) => a.time - b.time);
+
+        line.setData(sortedPts);
+        indicatorSeriesMap[indName] = line;
+        colorIdx++;
       }
     }
-    
-    mtfCharts[tf] = { 
-      wrapEl: wrap, 
-      chartInst: chart, 
+
+    mtfCharts[tf] = {
+      wrapEl: wrap,
+      chartInst: chart,
       candleSeries: candleSeries,
       indicatorSeriesMap: indicatorSeriesMap
     };
-    
+
     // Set historical candles
     if (histCandles && histCandles[tf]) {
-        const uniqueData = [];
-        const seen = new Set();
-        const sorted = histCandles[tf].map(c => ({
-            time: _toTs(c.time),
-            open: c.open,
-            high: c.high,
-            low: c.low,
-            close: c.close
-        })).sort((a,b) => a.time - b.time);
-        
-        for (const bar of sorted) {
-            if (!seen.has(bar.time)) {
-                seen.add(bar.time);
-                uniqueData.push(bar);
-            }
+      const uniqueData = [];
+      const seen = new Set();
+      const sorted = histCandles[tf].map(c => ({
+        time: _toTs(c.time),
+        open: c.open,
+        high: c.high,
+        low: c.low,
+        close: c.close
+      })).sort((a, b) => a.time - b.time);
+
+      for (const bar of sorted) {
+        if (!seen.has(bar.time)) {
+          seen.add(bar.time);
+          uniqueData.push(bar);
         }
-        try {
-            candleSeries.setData(uniqueData);
-        } catch(e) { console.error("Error setting candle data", e); }
+      }
+      try {
+        candleSeries.setData(uniqueData);
+      } catch (e) { console.error("Error setting candle data", e); }
     }
   });
-  
+
   // Render historical signals & markers
   if (histSignals && histSignals.length > 0) {
-      const reversed = [...histSignals].reverse();
-      
-      // Group markers by timeframe
-      const markersByTf = {};
-      
-      reversed.forEach(sig => {
-          renderSignalItem(sig);
-          
-          if (!markersByTf[sig.timeframe]) markersByTf[sig.timeframe] = [];
-          
-          markersByTf[sig.timeframe].push({
-              time: _toTs(sig.bar_time),
-              position: sig.direction === 'BUY' ? 'belowBar' : 'aboveBar',
-              color: sig.direction === 'BUY' ? '#22c55e' : '#ef4444',
-              shape: sig.direction === 'BUY' ? 'arrowUp' : 'arrowDown',
-              text: sig.direction
-          });
+    const reversed = [...histSignals].reverse();
+
+    // Group markers by timeframe
+    const markersByTf = {};
+
+    reversed.forEach(sig => {
+      renderSignalItem(sig);
+
+      if (!markersByTf[sig.timeframe]) markersByTf[sig.timeframe] = [];
+
+      markersByTf[sig.timeframe].push({
+        time: _toTs(sig.bar_time),
+        position: sig.direction === 'BUY' ? 'belowBar' : 'aboveBar',
+        color: sig.direction === 'BUY' ? '#22c55e' : '#ef4444',
+        shape: sig.direction === 'BUY' ? 'arrowUp' : 'arrowDown',
+        text: sig.direction
       });
-      
-      // Apply markers to charts
-      for (const tf in markersByTf) {
-          if (mtfCharts[tf]) {
-              const markers = markersByTf[tf].sort((a,b) => a.time - b.time);
-              mtfCharts[tf].candleSeries.setMarkers(markers);
-              mtfCharts[tf].markers = markers; // Store for future updates
-          }
+    });
+
+    // Apply markers to charts
+    for (const tf in markersByTf) {
+      if (mtfCharts[tf]) {
+        const markers = markersByTf[tf].sort((a, b) => a.time - b.time);
+        mtfCharts[tf].candleSeries.setMarkers(markers);
+        mtfCharts[tf].markers = markers; // Store for future updates
       }
-      
-      // Sort charts by the most recent signal (they are already newest-first in histSignals)
-      const tfs_in_order = [...new Set(histSignals.map(s => s.timeframe))].reverse();
-      const container = document.getElementById('mtf-charts-container');
-      
-      tfs_in_order.forEach(tf => {
-          if (mtfCharts[tf]) {
-             const wrap = mtfCharts[tf].wrapEl;
-             if (wrap.parentNode === container) {
-                 container.removeChild(wrap);
-                 container.prepend(wrap);
-             }
-          }
-      });
+    }
+
+    // Sort charts by the most recent signal (they are already newest-first in histSignals)
+    const tfs_in_order = [...new Set(histSignals.map(s => s.timeframe))].reverse();
+    const container = document.getElementById('mtf-charts-container');
+
+    tfs_in_order.forEach(tf => {
+      if (mtfCharts[tf]) {
+        const wrap = mtfCharts[tf].wrapEl;
+        if (wrap.parentNode === container) {
+          container.removeChild(wrap);
+          container.prepend(wrap);
+        }
+      }
+    });
   }
-  
+
   // Handle resize
   window.addEventListener('resize', () => {
-     for(let tf in mtfCharts) {
-         const cdt = document.getElementById(`canvas-${tf}`);
-         if (cdt) {
-             mtfCharts[tf].chartInst.applyOptions({ width: cdt.clientWidth });
-         }
-     }
+    for (let tf in mtfCharts) {
+      const cdt = document.getElementById(`canvas-${tf}`);
+      if (cdt) {
+        mtfCharts[tf].chartInst.applyOptions({ width: cdt.clientWidth });
+      }
+    }
   });
 }
 
 function connectWebSocket() {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/api/mtf/stream`;
-    wsConnection = new WebSocket(wsUrl);
-    
-    wsConnection.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
-        if (msg.type === 'bar_updates') {
-            msg.data.forEach(update => {
-                const tf = update.timeframe;
-                if (mtfCharts[tf]) {
-                    mtfCharts[tf].candleSeries.update({
-                        time: _toTs(update.bar.time),
-                        open: update.bar.open,
-                        high: update.bar.high,
-                        low: update.bar.low,
-                        close: update.bar.close
-                    });
-                    
-                    if (state.expandedTf === tf && state.expandedChart && state.expandedCandles) {
-                        state.expandedCandles.update({
-                            time: _toTs(update.bar.time),
-                            open: update.bar.open,
-                            high: update.bar.high,
-                            low: update.bar.low,
-                            close: update.bar.close
-                        });
-                    }
-                }
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${protocol}//${window.location.host}/api/mtf/stream`;
+  wsConnection = new WebSocket(wsUrl);
+
+  wsConnection.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    if (msg.type === 'bar_updates') {
+      msg.data.forEach(update => {
+        const tf = update.timeframe;
+        if (mtfCharts[tf]) {
+          mtfCharts[tf].candleSeries.update({
+            time: _toTs(update.bar.time),
+            open: update.bar.open,
+            high: update.bar.high,
+            low: update.bar.low,
+            close: update.bar.close
+          });
+
+          if (state.expandedTf === tf && state.expandedChart && state.expandedCandles) {
+            state.expandedCandles.update({
+              time: _toTs(update.bar.time),
+              open: update.bar.open,
+              high: update.bar.high,
+              low: update.bar.low,
+              close: update.bar.close
             });
+          }
         }
-        else if (msg.type === 'signal') {
-            handleNewSignal(msg.data);
-        }
-        else if (msg.type === 'risk_alert') {
-            handleRiskAlert(msg.data);
-        }
-    };
-    
-    wsConnection.onclose = () => {
-        console.log("WS closed");
-        if(state.scannerActive) {
-            setTimeout(connectWebSocket, 2000); // reconnect
-        }
-    };
-    
-    wsConnection.onerror = (err) => {
-        console.error("WS Error", err);
-    };
+      });
+    }
+    else if (msg.type === 'signal') {
+      handleNewSignal(msg.data);
+    }
+    else if (msg.type === 'risk_alert') {
+      handleRiskAlert(msg.data);
+    }
+  };
+
+  wsConnection.onclose = () => {
+    console.log("WS closed");
+    if (state.scannerActive) {
+      setTimeout(connectWebSocket, 2000); // reconnect
+    }
+  };
+
+  wsConnection.onerror = (err) => {
+    console.error("WS Error", err);
+  };
 }
 
 function handleNewSignal(sig) {
-    const tf = sig.timeframe;
-    const isBuy = sig.direction === 'BUY';
-    
-    // 1. Move chart to top and glow
-    if (mtfCharts[tf]) {
-        const container = document.getElementById('mtf-charts-container');
-        const wrap = mtfCharts[tf].wrapEl;
-        if (wrap.parentNode === container) {
-            // Remove then insert before first child
-            container.removeChild(wrap);
-            container.prepend(wrap);
-            
-            // Trigger animation reflow
-            wrap.classList.remove('chart-glow-buy', 'chart-glow-sell');
-            void wrap.offsetWidth; 
-            wrap.classList.add(isBuy ? 'chart-glow-buy' : 'chart-glow-sell');
-        }
-        
-        // Add Marker
-        const marker = {
-            time: _toTs(sig.bar_time),
-            position: isBuy ? 'belowBar' : 'aboveBar',
-            color: isBuy ? '#22c55e' : '#ef4444',
-            shape: isBuy ? 'arrowUp' : 'arrowDown',
-            text: sig.direction
-        };
-        
-        if (!mtfCharts[tf].markers) mtfCharts[tf].markers = [];
-        mtfCharts[tf].markers.push(marker);
-        mtfCharts[tf].markers.sort((a, b) => a.time - b.time);
-        mtfCharts[tf].candleSeries.setMarkers(mtfCharts[tf].markers);
-        
-        // Update Expanded Chart if active
-        if (state.expandedTf === tf && state.expandedCandles) {
-            state.expandedCandles.setMarkers(mtfCharts[tf].markers);
-        }
+  const tf = sig.timeframe;
+  const isBuy = sig.direction === 'BUY';
+
+  // 1. Move chart to top and glow
+  if (mtfCharts[tf]) {
+    const container = document.getElementById('mtf-charts-container');
+    const wrap = mtfCharts[tf].wrapEl;
+    if (wrap.parentNode === container) {
+      // Remove then insert before first child
+      container.removeChild(wrap);
+      container.prepend(wrap);
+
+      // Trigger animation reflow
+      wrap.classList.remove('chart-glow-buy', 'chart-glow-sell');
+      void wrap.offsetWidth;
+      wrap.classList.add(isBuy ? 'chart-glow-buy' : 'chart-glow-sell');
     }
-    
-    renderSignalItem(sig);
+
+    // Add Marker
+    const marker = {
+      time: _toTs(sig.bar_time),
+      position: isBuy ? 'belowBar' : 'aboveBar',
+      color: isBuy ? '#22c55e' : '#ef4444',
+      shape: isBuy ? 'arrowUp' : 'arrowDown',
+      text: sig.direction
+    };
+
+    if (!mtfCharts[tf].markers) mtfCharts[tf].markers = [];
+    mtfCharts[tf].markers.push(marker);
+    mtfCharts[tf].markers.sort((a, b) => a.time - b.time);
+    mtfCharts[tf].candleSeries.setMarkers(mtfCharts[tf].markers);
+
+    // Update Expanded Chart if active
+    if (state.expandedTf === tf && state.expandedCandles) {
+      state.expandedCandles.setMarkers(mtfCharts[tf].markers);
+    }
+  }
+
+  renderSignalItem(sig);
 }
 
 function renderSignalItem(sig) {
-    const tf = sig.timeframe;
-    const isBuy = sig.direction === 'BUY';
-    const rc = document.getElementById('report-card');
-    const empty = rc.querySelector('.report-empty');
-    if (empty) empty.remove();
-    
-    const item = document.createElement('div');
-    item.className = `report-item ${isBuy ? 'buy' : 'sell'}`;
-    
-    const d = new Date(new Date(sig.time).getTime() + IST_OFFSET_MS);
-    const pad = n => String(n).padStart(2, '0');
-    const timeFmt = `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())} IST`;
-    
-    item.innerHTML = `
+  const tf = sig.timeframe;
+  const isBuy = sig.direction === 'BUY';
+  const rc = document.getElementById('report-card');
+  const empty = rc.querySelector('.report-empty');
+  if (empty) empty.remove();
+
+  const item = document.createElement('div');
+  item.className = `report-item ${isBuy ? 'buy' : 'sell'}`;
+
+  const d = new Date(new Date(sig.time).getTime() + IST_OFFSET_MS);
+  const pad = n => String(n).padStart(2, '0');
+  const timeFmt = `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())} IST`;
+
+  item.innerHTML = `
         <div class="report-item-header">
             <span>${sig.symbol} <span class="mtf-chart-tf">${tf}</span></span>
             <span class="${isBuy ? 'text-profit' : 'text-loss'}">${sig.direction}</span>
@@ -924,94 +924,94 @@ function renderSignalItem(sig) {
             ${timeFmt} • @ ${sig.price}
         </div>
     `;
-    rc.prepend(item);
+  rc.prepend(item);
 }
 
 
 // ─── Expanded Chart Modal ───────────────────────────────────────
 function openExpandedChart(tf) {
-    const modal = document.getElementById('chart-modal');
-    const container = document.getElementById('modal-chart-container');
-    const title = document.getElementById('modal-title');
-    
-    // Set Title
-    title.innerHTML = `${state.config.symbol} <span class="mtf-chart-tf">${tf}</span>`;
-    
-    // Clear previous
-    container.innerHTML = '';
-    
-    const colors = getChartColors();
-    
-    // Create new chart instance
-    const chart = LightweightCharts.createChart(container, {
-        width: container.clientWidth,
-        height: container.clientHeight,
-        layout: { background: { type: 'solid', color: colors.bg }, textColor: colors.text, fontFamily: "'Inter', sans-serif", fontSize: 12 },
-        grid: { vertLines: { color: colors.grid }, horzLines: { color: colors.grid } },
-        rightPriceScale: { borderColor: colors.border },
-        timeScale: { borderColor: colors.border, timeVisible: true, secondsVisible: false },
-        crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-    });
-    
-    const candleSeries = chart.addCandlestickSeries({
-        upColor: '#22c55e', downColor: '#ef4444',
-        borderUpColor: '#22c55e', borderDownColor: '#ef4444',
-        wickUpColor: '#22c55e', wickDownColor: '#ef4444',
-    });
-    
-    // Clone data from original chart
-    const originalChartInfo = mtfCharts[tf];
-    if (originalChartInfo) {
-        const data = originalChartInfo.candleSeries.data();
-        candleSeries.setData(data);
-        
-        // Clone markers
-        if (originalChartInfo.markers) {
-            candleSeries.setMarkers(originalChartInfo.markers);
-        }
-        
-        // Clone indicators
-        if (originalChartInfo.indicatorSeriesMap) {
-            for (const [indName, indSeries] of Object.entries(originalChartInfo.indicatorSeriesMap)) {
-                const line = chart.addLineSeries({
-                    color: indSeries.options().color,
-                    lineWidth: indSeries.options().lineWidth,
-                    title: indName
-                });
-                line.setData(indSeries.data());
-            }
-        }
+  const modal = document.getElementById('chart-modal');
+  const container = document.getElementById('modal-chart-container');
+  const title = document.getElementById('modal-title');
+
+  // Set Title
+  title.innerHTML = `${state.config.symbol} <span class="mtf-chart-tf">${tf}</span>`;
+
+  // Clear previous
+  container.innerHTML = '';
+
+  const colors = getChartColors();
+
+  // Create new chart instance
+  const chart = LightweightCharts.createChart(container, {
+    width: container.clientWidth,
+    height: container.clientHeight,
+    layout: { background: { type: 'solid', color: colors.bg }, textColor: colors.text, fontFamily: "'Inter', sans-serif", fontSize: 12 },
+    grid: { vertLines: { color: colors.grid }, horzLines: { color: colors.grid } },
+    rightPriceScale: { borderColor: colors.border },
+    timeScale: { borderColor: colors.border, timeVisible: true, secondsVisible: false },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+  });
+
+  const candleSeries = chart.addCandlestickSeries({
+    upColor: '#22c55e', downColor: '#ef4444',
+    borderUpColor: '#22c55e', borderDownColor: '#ef4444',
+    wickUpColor: '#22c55e', wickDownColor: '#ef4444',
+  });
+
+  // Clone data from original chart
+  const originalChartInfo = mtfCharts[tf];
+  if (originalChartInfo) {
+    const data = originalChartInfo.candleSeries.data();
+    candleSeries.setData(data);
+
+    // Clone markers
+    if (originalChartInfo.markers) {
+      candleSeries.setMarkers(originalChartInfo.markers);
     }
-    
-    // Store in state so we can route updates
-    state.expandedChart = chart;
-    state.expandedCandles = candleSeries;
-    state.expandedTf = tf;
-    
-    modal.classList.add('show');
-    
-    // Force a resize after rendering
-    setTimeout(() => {
-        chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
-    }, 50);
+
+    // Clone indicators
+    if (originalChartInfo.indicatorSeriesMap) {
+      for (const [indName, indSeries] of Object.entries(originalChartInfo.indicatorSeriesMap)) {
+        const line = chart.addLineSeries({
+          color: indSeries.options().color,
+          lineWidth: indSeries.options().lineWidth,
+          title: indName
+        });
+        line.setData(indSeries.data());
+      }
+    }
+  }
+
+  // Store in state so we can route updates
+  state.expandedChart = chart;
+  state.expandedCandles = candleSeries;
+  state.expandedTf = tf;
+
+  modal.classList.add('show');
+
+  // Force a resize after rendering
+  setTimeout(() => {
+    chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
+  }, 50);
 }
 
 function closeExpandedChart() {
-    const modal = document.getElementById('chart-modal');
-    modal.classList.remove('show');
-    
-    if (state.expandedChart) {
-        state.expandedChart.remove();
-        state.expandedChart = null;
-        state.expandedCandles = null;
-        state.expandedTf = null;
-    }
+  const modal = document.getElementById('chart-modal');
+  modal.classList.remove('show');
+
+  if (state.expandedChart) {
+    state.expandedChart.remove();
+    state.expandedChart = null;
+    state.expandedCandles = null;
+    state.expandedTf = null;
+  }
 }
 
 // Bind modal close button
 document.addEventListener('DOMContentLoaded', () => {
-    const closeBtn = document.getElementById('close-modal-btn');
-    if (closeBtn) closeBtn.addEventListener('click', closeExpandedChart);
+  const closeBtn = document.getElementById('close-modal-btn');
+  if (closeBtn) closeBtn.addEventListener('click', closeExpandedChart);
 });
 
 
@@ -1019,21 +1019,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Trading-specific state
 const tradingState = {
-    orderType: 'market',    // 'market' | 'pending'
-    direction: 'buy',       // 'buy' | 'sell'
-    symbol: '',
-    volume: 0.01,
-    price: null,
-    slEnabled: false,
-    tpEnabled: false,
-    sl: null,
-    tp: null,
-    timeEnabled: false,
-    executeTime: '',        // HH:MM format in IST
-    riskEnabled: false,
-    riskThreshold: 5.0,
-    positions: [],
-    scheduledTimer: null,   // setTimeout ID for scheduled orders
+  orderType: 'market',    // 'market' | 'pending'
+  direction: 'buy',       // 'buy' | 'sell'
+  symbol: '',
+  volume: 0.01,
+  price: null,
+  slEnabled: false,
+  tpEnabled: false,
+  sl: null,
+  tp: null,
+  timeEnabled: false,
+  executeTime: '',        // HH:MM format in IST
+  riskEnabled: false,
+  riskThreshold: 5.0,
+  positions: [],
+  scheduledTimer: null,   // setTimeout ID for scheduled orders
 };
 
 let positionPollInterval = null;
@@ -1041,53 +1041,53 @@ let riskPollInterval = null;
 
 // ─── Toggle Trading Panel Body ──────────────────────────────────
 function toggleTradingPanel() {
-    const body = document.getElementById('trading-panel-body');
-    const btn = document.getElementById('trading-toggle-btn');
-    if (!body) return;
-    if (body.style.display === 'none') {
-        body.style.display = '';
-        if (btn) btn.textContent = '_';
-    } else {
-        body.style.display = 'none';
-        if (btn) btn.textContent = '+';
-    }
+  const body = document.getElementById('trading-panel-body');
+  const btn = document.getElementById('trading-toggle-btn');
+  if (!body) return;
+  if (body.style.display === 'none') {
+    body.style.display = '';
+    if (btn) btn.textContent = '_';
+  } else {
+    body.style.display = 'none';
+    if (btn) btn.textContent = '+';
+  }
 }
 
 // ─── Initialize Trading Panel (called when scanner starts) ──────
 function initTradingPanel() {
-    tradingState.symbol = state.config.symbol || '';
-    tradingState.volume = state.config.lotSize || 0.01;
-    
-    document.getElementById('trading-panel').style.display = '';
-    renderOrderForm();
-    renderRiskMonitor();
-    renderPositionsTable([]);
-    
-    // Start polling positions every 2 seconds
-    if (positionPollInterval) clearInterval(positionPollInterval);
-    positionPollInterval = setInterval(pollPositions, 2000);
-    
-    // Start polling risk status every 3 seconds
-    if (riskPollInterval) clearInterval(riskPollInterval);
-    riskPollInterval = setInterval(pollRiskStatus, 3000);
-    
-    pollPositions();
+  tradingState.symbol = state.config.symbol || '';
+  tradingState.volume = state.config.lotSize || 0.01;
+
+  document.getElementById('trading-panel').style.display = '';
+  renderOrderForm();
+  renderRiskMonitor();
+  renderPositionsTable([]);
+
+  // Start polling positions every 2 seconds
+  if (positionPollInterval) clearInterval(positionPollInterval);
+  positionPollInterval = setInterval(pollPositions, 2000);
+
+  // Start polling risk status every 3 seconds
+  if (riskPollInterval) clearInterval(riskPollInterval);
+  riskPollInterval = setInterval(pollRiskStatus, 3000);
+
+  pollPositions();
 }
 
 // ─── Destroy Trading Panel (called when scanner stops) ──────────
 function destroyTradingPanel() {
-    document.getElementById('trading-panel').style.display = 'none';
-    if (positionPollInterval) { clearInterval(positionPollInterval); positionPollInterval = null; }
-    if (riskPollInterval) { clearInterval(riskPollInterval); riskPollInterval = null; }
-    if (tradingState.scheduledTimer) { clearTimeout(tradingState.scheduledTimer); tradingState.scheduledTimer = null; }
+  document.getElementById('trading-panel').style.display = 'none';
+  if (positionPollInterval) { clearInterval(positionPollInterval); positionPollInterval = null; }
+  if (riskPollInterval) { clearInterval(riskPollInterval); riskPollInterval = null; }
+  if (tradingState.scheduledTimer) { clearTimeout(tradingState.scheduledTimer); tradingState.scheduledTimer = null; }
 }
 
 // ─── Render Order Form ──────────────────────────────────────────
 function renderOrderForm() {
-    const el = document.getElementById('order-form-content');
-    if (!el) return;
-    
-    el.innerHTML = `
+  const el = document.getElementById('order-form-content');
+  if (!el) return;
+
+  el.innerHTML = `
         <!-- Order Type Toggle -->
         <div class="order-toggle-row">
             <button class="order-toggle-btn ${tradingState.orderType === 'market' ? 'active' : ''}" 
@@ -1189,41 +1189,41 @@ function renderOrderForm() {
 }
 
 function setOrderType(type) {
-    tradingState.orderType = type;
-    renderOrderForm();
+  tradingState.orderType = type;
+  renderOrderForm();
 }
 
 function setDirection(dir) {
-    tradingState.direction = dir;
-    renderOrderForm();
+  tradingState.direction = dir;
+  renderOrderForm();
 }
 
 // ─── Confirmation Dialog ────────────────────────────────────────
 function confirmPlaceOrder() {
-    const sym = tradingState.symbol;
-    const dir = tradingState.direction.toUpperCase();
-    const vol = tradingState.volume;
-    const type = tradingState.orderType;
-    
-    let details = `${type.toUpperCase()} ${dir} ${vol} lots on ${sym}`;
-    if (type === 'pending' && tradingState.price) details += ` @ ${tradingState.price}`;
-    if (tradingState.slEnabled && tradingState.sl) details += ` | SL: ${tradingState.sl}`;
-    if (tradingState.tpEnabled && tradingState.tp) details += ` | TP: ${tradingState.tp}`;
-    if (tradingState.timeEnabled && tradingState.executeTime) details += ` | Scheduled: ${tradingState.executeTime} IST`;
-    
-    // Show confirmation modal
-    showConfirmationDialog(details, executePlaceOrder);
+  const sym = tradingState.symbol;
+  const dir = tradingState.direction.toUpperCase();
+  const vol = tradingState.volume;
+  const type = tradingState.orderType;
+
+  let details = `${type.toUpperCase()} ${dir} ${vol} lots on ${sym}`;
+  if (type === 'pending' && tradingState.price) details += ` @ ${tradingState.price}`;
+  if (tradingState.slEnabled && tradingState.sl) details += ` | SL: ${tradingState.sl}`;
+  if (tradingState.tpEnabled && tradingState.tp) details += ` | TP: ${tradingState.tp}`;
+  if (tradingState.timeEnabled && tradingState.executeTime) details += ` | Scheduled: ${tradingState.executeTime} IST`;
+
+  // Show confirmation modal
+  showConfirmationDialog(details, executePlaceOrder);
 }
 
 function showConfirmationDialog(message, onConfirm) {
-    // Remove existing dialog if any
-    const existing = document.getElementById('confirm-dialog-overlay');
-    if (existing) existing.remove();
-    
-    const overlay = document.createElement('div');
-    overlay.id = 'confirm-dialog-overlay';
-    overlay.className = 'confirm-overlay';
-    overlay.innerHTML = `
+  // Remove existing dialog if any
+  const existing = document.getElementById('confirm-dialog-overlay');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'confirm-dialog-overlay';
+  overlay.className = 'confirm-overlay';
+  overlay.innerHTML = `
         <div class="confirm-dialog">
             <div class="confirm-dialog-header">
                 <span class="confirm-icon">⚠️</span>
@@ -1237,122 +1237,122 @@ function showConfirmationDialog(message, onConfirm) {
             </div>
         </div>
     `;
-    document.body.appendChild(overlay);
-    
-    document.getElementById('btn-confirm-go').onclick = () => {
-        overlay.remove();
-        onConfirm();
-    };
+  document.body.appendChild(overlay);
+
+  document.getElementById('btn-confirm-go').onclick = () => {
+    overlay.remove();
+    onConfirm();
+  };
 }
 
 // ─── Execute or Schedule Order ──────────────────────────────────
 function executePlaceOrder() {
-    if (tradingState.timeEnabled && tradingState.executeTime) {
-        // Schedule the order for the desired IST time
-        const [hh, mm] = tradingState.executeTime.split(':').map(Number);
-        
-        // Get current time in IST
-        const nowUTC = Date.now();
-        const nowIST = new Date(nowUTC + IST_OFFSET_MS);
-        
-        // Build target time today in IST
-        const targetIST = new Date(nowIST);
-        targetIST.setUTCHours(hh, mm, 0, 0);
-        
-        // Calculate delay in ms
-        let delayMs = targetIST.getTime() - nowIST.getTime();
-        
-        if (delayMs < 0) {
-            // Time already passed today — execute immediately
-            delayMs = 0;
-        }
-        
-        // Cancel any previous scheduled timer
-        if (tradingState.scheduledTimer) {
-            clearTimeout(tradingState.scheduledTimer);
-        }
-        
-        tradingState.scheduledTimer = setTimeout(() => {
-            tradingState.scheduledTimer = null;
-            placeLiveOrder();
-            renderOrderForm(); // remove scheduled badge
-        }, delayMs);
-        
-        renderOrderForm(); // show scheduled badge
-        
-        const sucEl = document.getElementById('order-success');
-        if (sucEl) {
-            const mins = Math.round(delayMs / 60000);
-            sucEl.textContent = `⏰ Order scheduled for ${tradingState.executeTime} IST (in ~${mins} min)`;
-            sucEl.style.display = 'block';
-        }
-        return;
+  if (tradingState.timeEnabled && tradingState.executeTime) {
+    // Schedule the order for the desired IST time
+    const [hh, mm] = tradingState.executeTime.split(':').map(Number);
+
+    // Get current time in IST
+    const nowUTC = Date.now();
+    const nowIST = new Date(nowUTC + IST_OFFSET_MS);
+
+    // Build target time today in IST
+    const targetIST = new Date(nowIST);
+    targetIST.setUTCHours(hh, mm, 0, 0);
+
+    // Calculate delay in ms
+    let delayMs = targetIST.getTime() - nowIST.getTime();
+
+    if (delayMs < 0) {
+      // Time already passed today — execute immediately
+      delayMs = 0;
     }
-    
-    // No scheduling — execute immediately
-    placeLiveOrder();
+
+    // Cancel any previous scheduled timer
+    if (tradingState.scheduledTimer) {
+      clearTimeout(tradingState.scheduledTimer);
+    }
+
+    tradingState.scheduledTimer = setTimeout(() => {
+      tradingState.scheduledTimer = null;
+      placeLiveOrder();
+      renderOrderForm(); // remove scheduled badge
+    }, delayMs);
+
+    renderOrderForm(); // show scheduled badge
+
+    const sucEl = document.getElementById('order-success');
+    if (sucEl) {
+      const mins = Math.round(delayMs / 60000);
+      sucEl.textContent = `⏰ Order scheduled for ${tradingState.executeTime} IST (in ~${mins} min)`;
+      sucEl.style.display = 'block';
+    }
+    return;
+  }
+
+  // No scheduling — execute immediately
+  placeLiveOrder();
 }
 
 // ─── Place Order API Call ───────────────────────────────────────
 async function placeLiveOrder() {
-    const errEl = document.getElementById('order-error');
-    const sucEl = document.getElementById('order-success');
-    errEl.style.display = 'none';
-    sucEl.style.display = 'none';
-    
-    const payload = {
-        symbol: tradingState.symbol,
-        order_type: tradingState.orderType,
-        direction: tradingState.direction,
-        volume: tradingState.volume,
-        price: tradingState.orderType === 'pending' ? tradingState.price : null,
-        sl: tradingState.slEnabled ? tradingState.sl : null,
-        tp: tradingState.tpEnabled ? tradingState.tp : null,
-        sl_enabled: tradingState.slEnabled,
-        tp_enabled: tradingState.tpEnabled,
-    };
-    
-    try {
-        const result = await api('/api/trading/order', {
-            method: 'POST',
-            body: JSON.stringify(payload),
-        });
-        sucEl.textContent = `✓ Order placed! Ticket: ${result.ticket} @ ${result.price}`;
-        sucEl.style.display = 'block';
-        setTimeout(() => { sucEl.style.display = 'none'; }, 5000);
-        pollPositions(); // refresh positions
-    } catch (err) {
-        errEl.textContent = err.message;
-        errEl.style.display = 'block';
-        setTimeout(() => { errEl.style.display = 'none'; }, 8000);
-    }
+  const errEl = document.getElementById('order-error');
+  const sucEl = document.getElementById('order-success');
+  errEl.style.display = 'none';
+  sucEl.style.display = 'none';
+
+  const payload = {
+    symbol: tradingState.symbol,
+    order_type: tradingState.orderType,
+    direction: tradingState.direction,
+    volume: tradingState.volume,
+    price: tradingState.orderType === 'pending' ? tradingState.price : null,
+    sl: tradingState.slEnabled ? tradingState.sl : null,
+    tp: tradingState.tpEnabled ? tradingState.tp : null,
+    sl_enabled: tradingState.slEnabled,
+    tp_enabled: tradingState.tpEnabled,
+  };
+
+  try {
+    const result = await api('/api/trading/order', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    sucEl.textContent = `✓ Order placed! Ticket: ${result.ticket} @ ${result.price}`;
+    sucEl.style.display = 'block';
+    setTimeout(() => { sucEl.style.display = 'none'; }, 5000);
+    pollPositions(); // refresh positions
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.style.display = 'block';
+    setTimeout(() => { errEl.style.display = 'none'; }, 8000);
+  }
 }
 
 // ─── Positions Polling ──────────────────────────────────────────
 async function pollPositions() {
-    if (!state.mt5Connected) return;
-    try {
-        const data = await api('/api/trading/positions');
-        tradingState.positions = data.positions || [];
-        renderPositionsTable(tradingState.positions);
-    } catch (err) {
-        // silent fail for polling
-    }
+  if (!state.mt5Connected) return;
+  try {
+    const data = await api('/api/trading/positions');
+    tradingState.positions = data.positions || [];
+    renderPositionsTable(tradingState.positions);
+  } catch (err) {
+    // silent fail for polling
+  }
 }
 
 function renderPositionsTable(positions) {
-    const wrap = document.getElementById('positions-table-wrap');
-    if (!wrap) return;
-    
-    if (!positions || positions.length === 0) {
-        wrap.innerHTML = '<div class="positions-empty">No open positions</div>';
-        return;
-    }
-    
-    const totalPnL = positions.reduce((sum, p) => sum + p.profit, 0);
-    const pnlClass = totalPnL >= 0 ? 'text-profit' : 'text-loss';
-    
-    wrap.innerHTML = `
+  const wrap = document.getElementById('positions-table-wrap');
+  if (!wrap) return;
+
+  if (!positions || positions.length === 0) {
+    wrap.innerHTML = '<div class="positions-empty">No open positions</div>';
+    return;
+  }
+
+  const totalPnL = positions.reduce((sum, p) => sum + p.profit, 0);
+  const pnlClass = totalPnL >= 0 ? 'text-profit' : 'text-loss';
+
+  wrap.innerHTML = `
         <div class="positions-summary">
             <span>${positions.length} position${positions.length > 1 ? 's' : ''}</span>
             <span class="${pnlClass}">${totalPnL >= 0 ? '+' : ''}${totalPnL.toFixed(2)}</span>
@@ -1373,9 +1373,9 @@ function renderPositionsTable(positions) {
                 </thead>
                 <tbody>
                     ${positions.map(p => {
-                        const plClass = p.profit >= 0 ? 'text-profit' : 'text-loss';
-                        const typeClass = p.type === 'buy' ? 'side-badge buy' : 'side-badge sell';
-                        return `<tr>
+    const plClass = p.profit >= 0 ? 'text-profit' : 'text-loss';
+    const typeClass = p.type === 'buy' ? 'side-badge buy' : 'side-badge sell';
+    return `<tr>
                             <td class="mono">${p.ticket}</td>
                             <td class="mono">${p.symbol}</td>
                             <td><span class="${typeClass}">${p.type.toUpperCase()}</span></td>
@@ -1385,7 +1385,7 @@ function renderPositionsTable(positions) {
                             <td class="${plClass} mono">${p.profit >= 0 ? '+' : ''}${p.profit.toFixed(2)}</td>
                             <td><button class="btn-close-pos" onclick="closeSinglePosition(${p.ticket})">✕</button></td>
                         </tr>`;
-                    }).join('')}
+  }).join('')}
                 </tbody>
             </table>
         </div>
@@ -1393,35 +1393,35 @@ function renderPositionsTable(positions) {
 }
 
 async function closeSinglePosition(ticket) {
-    try {
-        await api(`/api/trading/close/${ticket}`, { method: 'POST' });
-        pollPositions();
-    } catch (err) {
-        alert('Close failed: ' + err.message);
-    }
+  try {
+    await api(`/api/trading/close/${ticket}`, { method: 'POST' });
+    pollPositions();
+  } catch (err) {
+    alert('Close failed: ' + err.message);
+  }
 }
 
 async function closeAllPositions() {
-    if (tradingState.positions.length === 0) return;
-    showConfirmationDialog(
-        `Close ALL ${tradingState.positions.length} open position(s)?`,
-        async () => {
-            try {
-                await api('/api/trading/close-all', { method: 'POST' });
-                pollPositions();
-            } catch (err) {
-                alert('Close all failed: ' + err.message);
-            }
-        }
-    );
+  if (tradingState.positions.length === 0) return;
+  showConfirmationDialog(
+    `Close ALL ${tradingState.positions.length} open position(s)?`,
+    async () => {
+      try {
+        await api('/api/trading/close-all', { method: 'POST' });
+        pollPositions();
+      } catch (err) {
+        alert('Close all failed: ' + err.message);
+      }
+    }
+  );
 }
 
 // ─── Risk Monitor ───────────────────────────────────────────────
 function renderRiskMonitor() {
-    const el = document.getElementById('risk-monitor-content');
-    if (!el) return;
-    
-    el.innerHTML = `
+  const el = document.getElementById('risk-monitor-content');
+  if (!el) return;
+
+  el.innerHTML = `
         <div class="risk-toggle-row">
             <label>Enable Risk Threshold</label>
             <label class="switch-sm">
@@ -1453,85 +1453,85 @@ function renderRiskMonitor() {
 }
 
 async function toggleRiskThreshold(enabled) {
-    tradingState.riskEnabled = enabled;
-    try {
-        await api('/api/trading/risk-threshold', {
-            method: 'POST',
-            body: JSON.stringify({
-                enabled: enabled,
-                threshold_pct: tradingState.riskThreshold,
-            }),
-        });
-    } catch (err) {
-        console.error('Failed to set risk threshold:', err);
-    }
+  tradingState.riskEnabled = enabled;
+  try {
+    await api('/api/trading/risk-threshold', {
+      method: 'POST',
+      body: JSON.stringify({
+        enabled: enabled,
+        threshold_pct: tradingState.riskThreshold,
+      }),
+    });
+  } catch (err) {
+    console.error('Failed to set risk threshold:', err);
+  }
 }
 
 async function pollRiskStatus() {
-    if (!state.mt5Connected) return;
-    try {
-        const data = await api('/api/trading/risk-status');
-        updateRiskDisplay(data);
-    } catch (err) {
-        // silent
-    }
+  if (!state.mt5Connected) return;
+  try {
+    const data = await api('/api/trading/risk-status');
+    updateRiskDisplay(data);
+  } catch (err) {
+    // silent
+  }
 }
 
 function updateRiskDisplay(data) {
-    const fillEl = document.getElementById('risk-bar-fill');
-    const drawdownLabel = document.getElementById('risk-drawdown-label');
-    const statusLabel = document.getElementById('risk-status-label');
-    const acctInfo = document.getElementById('risk-account-info');
-    
-    if (!fillEl || !drawdownLabel || !statusLabel) return;
-    
-    const dd = data.drawdown_pct || 0;
-    const threshold = data.threshold_pct || tradingState.riskThreshold;
-    
-    // Clamp bar width to 100%
-    const barWidth = Math.min(dd, 100);
-    fillEl.style.width = barWidth + '%';
-    
-    drawdownLabel.textContent = dd.toFixed(2) + '%';
-    
-    // Color coding
-    if (data.breached) {
-        fillEl.style.background = 'var(--loss-red)';
-        statusLabel.textContent = 'BREACHED';
-        statusLabel.className = 'risk-status-danger';
-    } else if (dd >= threshold * 0.8) {
-        fillEl.style.background = 'var(--warning-amber)';
-        statusLabel.textContent = 'WARNING';
-        statusLabel.className = 'risk-status-warning';
-    } else {
-        fillEl.style.background = 'var(--profit-green)';
-        statusLabel.textContent = 'SAFE';
-        statusLabel.className = 'risk-status-safe';
-    }
-    
-    // Update threshold marker position
-    const thresholdEl = document.getElementById('risk-bar-threshold');
-    if (thresholdEl) thresholdEl.style.left = Math.min(threshold, 100) + '%';
-    
-    // Show account info
-    if (acctInfo) {
-        const bal = data.current_balance != null ? data.current_balance.toFixed(2) : '—';
-        const eq = data.current_equity != null ? data.current_equity.toFixed(2) : '—';
-        const initBal = data.initial_balance != null ? data.initial_balance.toFixed(2) : '—';
-        acctInfo.innerHTML = `
+  const fillEl = document.getElementById('risk-bar-fill');
+  const drawdownLabel = document.getElementById('risk-drawdown-label');
+  const statusLabel = document.getElementById('risk-status-label');
+  const acctInfo = document.getElementById('risk-account-info');
+
+  if (!fillEl || !drawdownLabel || !statusLabel) return;
+
+  const dd = data.drawdown_pct || 0;
+  const threshold = data.threshold_pct || tradingState.riskThreshold;
+
+  // Clamp bar width to 100%
+  const barWidth = Math.min(dd, 100);
+  fillEl.style.width = barWidth + '%';
+
+  drawdownLabel.textContent = dd.toFixed(2) + '%';
+
+  // Color coding
+  if (data.breached) {
+    fillEl.style.background = 'var(--loss-red)';
+    statusLabel.textContent = 'BREACHED';
+    statusLabel.className = 'risk-status-danger';
+  } else if (dd >= threshold * 0.8) {
+    fillEl.style.background = 'var(--warning-amber)';
+    statusLabel.textContent = 'WARNING';
+    statusLabel.className = 'risk-status-warning';
+  } else {
+    fillEl.style.background = 'var(--profit-green)';
+    statusLabel.textContent = 'SAFE';
+    statusLabel.className = 'risk-status-safe';
+  }
+
+  // Update threshold marker position
+  const thresholdEl = document.getElementById('risk-bar-threshold');
+  if (thresholdEl) thresholdEl.style.left = Math.min(threshold, 100) + '%';
+
+  // Show account info
+  if (acctInfo) {
+    const bal = data.current_balance != null ? data.current_balance.toFixed(2) : '—';
+    const eq = data.current_equity != null ? data.current_equity.toFixed(2) : '—';
+    const initBal = data.initial_balance != null ? data.initial_balance.toFixed(2) : '—';
+    acctInfo.innerHTML = `
             <div class="risk-info-row"><span>Balance</span><span class="mono">${bal}</span></div>
             <div class="risk-info-row"><span>Equity</span><span class="mono">${eq}</span></div>
             <div class="risk-info-row"><span>Initial (snapshot)</span><span class="mono">${initBal}</span></div>
         `;
-    }
+  }
 }
 
 // ─── WebSocket: Handle risk_alert messages ──────────────────────
 function handleRiskAlert(data) {
-    // Show emergency red notification
-    const overlay = document.createElement('div');
-    overlay.className = 'risk-alert-overlay';
-    overlay.innerHTML = `
+  // Show emergency red notification
+  const overlay = document.createElement('div');
+  overlay.className = 'risk-alert-overlay';
+  overlay.innerHTML = `
         <div class="risk-alert-box">
             <div class="risk-alert-icon">🚨</div>
             <h3>RISK THRESHOLD BREACHED</h3>
@@ -1544,11 +1544,11 @@ function handleRiskAlert(data) {
             <button class="btn-primary" onclick="this.closest('.risk-alert-overlay').remove()">Acknowledge</button>
         </div>
     `;
-    document.body.appendChild(overlay);
-    
-    // Update UI
-    tradingState.riskEnabled = false;
-    const chk = document.getElementById('risk-enabled-chk');
-    if (chk) chk.checked = false;
-    pollPositions();
+  document.body.appendChild(overlay);
+
+  // Update UI
+  tradingState.riskEnabled = false;
+  const chk = document.getElementById('risk-enabled-chk');
+  if (chk) chk.checked = false;
+  pollPositions();
 }
