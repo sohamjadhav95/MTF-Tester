@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Professional multi-asset MTF scanner with real-time trading signals" />
+    <title>MTF Scanner — Multi-Asset Real-Time Trading</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+</head>
+
+<body>
+    <div class="app">
+        <!-- ─── Sidebar ─── -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <span class="logo-icon">📊</span>
+                    <div>
+                        <h1 class="logo-title">MTF Scanner</h1>
+                        <span class="logo-sub">Multi-Asset Real-Time Signals</span>
+                    </div>
+                </div>
+                <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle dark/light mode">
+                    <span id="theme-icon">☀️</span>
+                </button>
+            </div>
+
+            <!-- Market Type Toggle -->
+            <div class="market-toggle">
+                <button class="toggle-btn active" id="btn-forex" onclick="setMarketType('forex')">Forex</button>
+                <button class="toggle-btn" id="btn-crypto" onclick="setMarketType('crypto')">Crypto</button>
+            </div>
+
+            <!-- MT5 Login -->
+            <div class="sidebar-section" id="mt5-section">
+                <!-- Filled by JS -->
+            </div>
+
+            <!-- Signal Report in Sidebar -->
+            <div class="sidebar-section" id="sidebar-report-section" style="display:none; flex: 1; display: flex; flex-direction: column; min-height: 0; padding-bottom: 0;">
+                <h3 style="margin-bottom: 12px; font-size: 0.95rem; color: var(--text-primary); font-weight: 600; padding: 0 20px;">Signal Report Card</h3>
+                <div class="report-card" id="report-card" style="flex: 1; overflow-y: auto;">
+                    <div class="report-empty">Waiting for signals...</div>
+                </div>
+            </div>
+
+            <!-- Sidebar Footer -->
+            <div class="sidebar-footer">
+                <div class="inline-error" id="error-box" style="display:none"></div>
+            </div>
+        </aside>
+
+        <!-- ─── Main Content ─── -->
+        <main class="main-content">
+            <div class="content-scroll" id="main-scroll">
+                <!-- Configuration Section — shown when no asset panels are active -->
+                <section class="section" id="config-section">
+                    <div class="section-header">
+                        <h2 class="section-title">Configuration</h2>
+                        <div class="section-actions">
+                            <button class="btn btn-secondary" onclick="toggleConfig()" id="config-toggle-btn" title="Minimize/Expand">_</button>
+                        </div>
+                    </div>
+                    <div class="config-cols" id="config-cols">
+                        <div class="config-col config-col-left" id="config-col-left">
+                            <!-- Filled by JS -->
+                        </div>
+                        <div class="config-col config-col-right" id="config-col-right">
+                            <!-- Filled by JS -->
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Asset Panels Container -->
+                <section id="asset-panels-section" style="display:none">
+                    <div class="asset-panels-header">
+                        <h2 class="section-title">Live MTF Signals <span class="live-pulse"></span></h2>
+                        <div class="asset-panels-actions">
+                            <button class="btn btn-add-asset" id="btn-add-asset" onclick="showAddAssetDialog()">
+                                <span>+</span> Add Asset
+                            </button>
+                            <button class="btn btn-stop-all" onclick="stopAllScanners()">
+                                ⏹ Stop All
+                            </button>
+                        </div>
+                    </div>
+                    <div id="asset-panels-container" class="asset-panels-container">
+                        <!-- Dynamically filled with asset panels -->
+                    </div>
+                </section>
+
+                <!-- Trading Panel -->
+                <div id="trading-panel" class="trading-panel" style="display:none">
+                    <div class="trading-panel-header">
+                        <h3><span class="trading-icon">💹</span> Trading Panel</h3>
+                        <button class="btn-secondary" onclick="toggleTradingPanel()" id="trading-toggle-btn">_</button>
+                    </div>
+                    <div class="trading-panel-body" id="trading-panel-body">
+                        <div class="trading-grid">
+                            <div class="trading-card" id="order-form-card">
+                                <h4 class="trading-card-title">Place Order</h4>
+                                <div id="order-form-content"></div>
+                            </div>
+                            <div class="trading-card trading-card-wide" id="positions-card">
+                                <div class="trading-card-header-row">
+                                    <h4 class="trading-card-title">Open Positions</h4>
+                                    <button class="btn-danger-sm" onclick="closeAllPositions()" id="btn-close-all">Close All</button>
+                                </div>
+                                <div id="positions-table-wrap"></div>
+                            </div>
+                            <div class="trading-card" id="risk-card">
+                                <h4 class="trading-card-title">Risk Monitor</h4>
+                                <div id="risk-monitor-content"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Loading -->
+                <div class="backtest-loading" id="loading-overlay" style="display:none">
+                    <div class="loading-content">
+                        <div class="loading-header">
+                            <span class="loading-text" id="loading-title">Connecting...</span>
+                        </div>
+                        <p class="loading-sub" id="loading-sub">Connecting live data feed...</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Add Asset Dialog -->
+    <div id="add-asset-dialog" class="chart-modal">
+        <div class="chart-modal-content" style="width: 520px; height: auto; max-height: 90vh;">
+            <div class="chart-modal-header">
+                <h2>Add Asset Panel</h2>
+                <button class="close-btn" onclick="hideAddAssetDialog()">&times;</button>
+            </div>
+            <div class="add-asset-body" id="add-asset-body">
+                <!-- Filled by JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Chart Modal Overlay -->
+    <div id="chart-modal" class="chart-modal">
+        <div class="chart-modal-content">
+            <div class="chart-modal-header">
+                <h2 id="modal-title">Chart</h2>
+                <button id="close-modal-btn" class="close-btn">&times;</button>
+            </div>
+            <div id="modal-chart-container" class="modal-chart-container"></div>
+        </div>
+    </div>
+
+    <!-- Lightweight Charts CDN -->
+    <script src="https://unpkg.com/lightweight-charts@4.2.2/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="app-core.js"></script>
+    <script src="app-config.js"></script>
+    <script src="app-scanner.js"></script>
+    <script src="app-trading.js"></script>
+</body>
+
+</html>
