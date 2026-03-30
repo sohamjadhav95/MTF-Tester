@@ -1,12 +1,15 @@
 /**
  * DASHBOARD.JS v2 — Navigation, MT5 connection, account info, dynamic strategy panels
+ *                   Uses TradingView LightweightCharts for live candlestick rendering.
  */
 
 // ── Global State ──────────────────────────────────────────────
 let _strategies = [];
 let _activeScanners = {};   // id → { ws, config, name }
 let _scannerIdCounter = 0;
-
+let _chartInstances = {};   // `${scannerId}-${tf}` → { chart, candleSeries, indicatorSeries, markers }
+let _expandedState = { chart: null, candles: null, tf: null, scannerId: null };
+let _mt5Symbols = [];       // [{name, description, spread, ...}] loaded from MT5
 document.addEventListener('DOMContentLoaded', () => {
     if (!guardAuth()) return;
 
@@ -21,6 +24,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initMT5Connection();
     loadStrategies();
     pollAccountInfo();
+    initDeployTrades();
 
     // ── Logout ────────────────────────────────────────────────
     document.getElementById('logout-btn').addEventListener('click', async () => {
@@ -72,8 +76,11 @@ function initMT5Connection() {
     const btn = document.getElementById('mt5-connect-btn');
     const loadBtn = document.getElementById('mt5-load-saved');
 
-    // Check initial status
-    api('/api/data/mt5/status').then(d => setMT5Connected(d.connected, d.account)).catch(() => {});
+    // Check initial status — and load symbols if already connected
+    api('/api/data/mt5/status').then(d => {
+        setMT5Connected(d.connected, d.account);
+        if (d.connected) loadMT5Symbols();
+    }).catch(() => {});
 
     // Connect form
     form.addEventListener('submit', async (e) => {
@@ -92,6 +99,7 @@ function initMT5Connection() {
             showToast('Connected to MT5', 'success');
             document.getElementById('mt5-password').value = '';
             refreshAccountInfo();
+            loadMT5Symbols();
         } catch (err) {
             showToast(err.message, 'error');
         } finally {
@@ -106,6 +114,7 @@ function initMT5Connection() {
             setMT5Connected(true, r.account);
             showToast('Connected with saved credentials', 'success');
             refreshAccountInfo();
+            loadMT5Symbols();
         } catch (err) {
             showToast(err.message, 'error');
         }
@@ -146,6 +155,77 @@ function updateAccountDisplay(info) {
         if (pnl != null) pnlEl.style.color = colorVal(pnl);
     }
 }
+
+// ═══ SYMBOL LOADING & AUTOCOMPLETE ═══════════════════════════
+async function loadMT5Symbols() {
+    try {
+        const data = await api('/api/data/symbols?group=*');
+        _mt5Symbols = data.symbols || [];
+        console.log(`Loaded ${_mt5Symbols.length} symbols from MT5`);
+        // Show the dropdown with initial symbols
+        filterSymbolList();
+    } catch (err) {
+        console.error('Failed to load symbols:', err);
+        _mt5Symbols = [];
+    }
+}
+
+function filterSymbolList() {
+    const input = document.getElementById('cfg-symbol');
+    const dropdown = document.getElementById('cfg-symbol-dropdown');
+    if (!input || !dropdown) return;
+
+    const q = input.value.trim().toLowerCase();
+
+    if (_mt5Symbols.length === 0) {
+        dropdown.innerHTML = '<div class="sym-empty">Connect to MT5 to load symbols</div>';
+        dropdown.classList.add('open');
+        return;
+    }
+
+    // Filter
+    const filtered = _mt5Symbols.filter(s =>
+        s.name.toLowerCase().includes(q) || (s.description || '').toLowerCase().includes(q)
+    );
+
+    if (filtered.length === 0) {
+        dropdown.innerHTML = '<div class="sym-empty">No symbols match your search</div>';
+        dropdown.classList.add('open');
+        return;
+    }
+
+    // Show max 40 results
+    dropdown.innerHTML = filtered.slice(0, 40).map(s => `
+        <div class="sym-item ${input.value === s.name ? 'active' : ''}" onclick="selectSymbol('${s.name}')">
+            <span class="sym-name">${s.name}</span>
+            <span class="sym-desc">${s.description || ''}</span>
+        </div>
+    `).join('');
+    dropdown.classList.add('open');
+}
+
+function selectSymbol(name) {
+    const input = document.getElementById('cfg-symbol');
+    const dropdown = document.getElementById('cfg-symbol-dropdown');
+    if (input) input.value = name;
+    if (dropdown) dropdown.classList.remove('open');
+}
+
+// Close symbol dropdown when clicking outside
+document.addEventListener('click', (e) => {
+    const dropdown = document.getElementById('cfg-symbol-dropdown');
+    const input = document.getElementById('cfg-symbol');
+    if (dropdown && !dropdown.contains(e.target) && e.target !== input) {
+        dropdown.classList.remove('open');
+    }
+});
+
+// Show dropdown when focusing on the symbol input
+document.addEventListener('focusin', (e) => {
+    if (e.target && e.target.id === 'cfg-symbol') {
+        filterSymbolList();
+    }
+});
 
 async function refreshAccountInfo() {
     try {
@@ -267,9 +347,9 @@ function getStratSettings() {
 }
 
 // ═══ LAUNCH SCANNER → CREATE DYNAMIC PANEL ════════════════════
-function handleLaunchScanner() {
+async function handleLaunchScanner() {
     const name = document.getElementById('cfg-name').value.trim();
-    const symbol = document.getElementById('cfg-symbol').value.trim().toUpperCase();
+    const symbol = document.getElementById('cfg-symbol').value.trim();
     const strategy = document.getElementById('cfg-strategy').value;
     const tfChips = document.querySelectorAll('#cfg-timeframes .tf-chip.selected');
     const timeframes = Array.from(tfChips).map(c => c.dataset.tf);
@@ -282,9 +362,89 @@ function handleLaunchScanner() {
     const id = `strat-${++_scannerIdCounter}`;
     const config = { symbol, timeframes, strategy_name: strategy, settings: getStratSettings(), provider: 'mt5' };
 
+    // Create panel with loading spinners first
     createDynamicPanel(id, name, config);
     switchPanel(id);
-    showToast(`Scanner "${name}" launched`, 'success');
+
+    // Update status to "Loading..."
+    const status = document.getElementById(`${id}-status`);
+    if (status) status.innerHTML = `<span class="dot dot-pending"></span><span>Loading data...</span>`;
+
+    // ── Step 1: REST call to fetch historical data ────────────
+    try {
+        const resp = await fetch('/api/chart/scanner/start', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${Auth.getToken()}`,
+            },
+            body: JSON.stringify(config),
+        });
+
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({ detail: 'Request failed' }));
+            throw new Error(err.detail || `HTTP ${resp.status}`);
+        }
+
+        const data = await resp.json();
+        const scannerId = data.scanner_id;
+
+        // Store scanner info with backend scanner_id
+        _activeScanners[id] = { ws: null, config: { ...config, _name: name }, signals: [], name, autoTrade: false, scannerId };
+
+        // ── Step 2: Render historical charts immediately ──────
+        const candles = data.historical_candles || {};
+        const indicators = data.historical_indicators || {};
+        const signals = data.historical_signals || [];
+
+        for (const [tf, bars] of Object.entries(candles)) {
+            if (bars && bars.length > 0) {
+                initLWChart(id, tf, bars, indicators[tf] || {});
+            }
+        }
+
+        // Process historical signals (markers + badges)
+        const markersByTf = {};
+        for (const sig of signals) {
+            _activeScanners[id].signals.push(sig);
+            updateGlobalSignals(sig);
+            const sigEl = document.getElementById(`${id}-sig-${sig.timeframe}`);
+            if (sigEl) {
+                const cls = sig.direction === 'BUY' ? 'long' : 'short';
+                sigEl.innerHTML = `<span class="badge badge-${cls}">${sig.direction}</span>`;
+            }
+            if (!markersByTf[sig.timeframe]) markersByTf[sig.timeframe] = [];
+            markersByTf[sig.timeframe].push({
+                time: _toChartTs(sig.bar_time),
+                position: sig.direction === 'BUY' ? 'belowBar' : 'aboveBar',
+                color: sig.direction === 'BUY' ? '#22c55e' : '#ef4444',
+                shape: sig.direction === 'BUY' ? 'arrowUp' : 'arrowDown',
+                text: sig.direction,
+            });
+        }
+        for (const tf in markersByTf) {
+            const key = `${id}-${tf}`;
+            if (_chartInstances[key]) {
+                const markers = markersByTf[tf].sort((a, b) => a.time - b.time);
+                _chartInstances[key].markers = markers;
+                try { _chartInstances[key].candleSeries.setMarkers(markers); } catch(e) {}
+            }
+        }
+        if (signals.length > 0) updateSignalStrip(id);
+
+        showToast(`✓ Data loaded — ${Object.keys(candles).length} timeframes rendered`, 'success');
+
+        // ── Step 3: Connect WebSocket for live updates ────────
+        if (status) status.innerHTML = `<span class="dot dot-on"></span><span>Live</span>`;
+        startScannerWS(id, scannerId);
+
+    } catch (err) {
+        console.error('Scanner start failed:', err);
+        if (status) status.innerHTML = `<span class="dot dot-off"></span><span>Error</span>`;
+        showToast(`Scanner failed: ${err.message}`, 'error');
+    }
+
+    setTimeout(() => refreshAutoTradeList(), 500);
 }
 
 function createDynamicPanel(id, name, config) {
@@ -335,14 +495,17 @@ function createDynamicPanel(id, name, config) {
             </div>
         </div>
         <div class="signal-strip" id="${id}-strip">
-            <span style="color:var(--text-3);">Waiting for signals...</span>
+            <span style="color:var(--text-3);">Loading charts...</span>
         </div>
         <div class="chart-grid ${colClass}" id="${id}-charts">
             ${config.timeframes.map(tf => `
                 <div class="chart-cell" id="${id}-cell-${tf}">
                     <div class="chart-cell-header">
                         <span class="chart-cell-tf">${tf}</span>
-                        <span class="chart-cell-price mono" id="${id}-price-${tf}">—</span>
+                        <div style="display:flex; align-items:center; gap: 6px;">
+                            <span class="chart-cell-price mono" id="${id}-price-${tf}">—</span>
+                            <button class="chart-expand-btn" onclick="openExpandedChart('${id}', '${tf}')" title="Expand Chart">&#x26F6;</button>
+                        </div>
                     </div>
                     <div class="chart-cell-body" id="${id}-canvas-${tf}">
                         <div class="empty-state" style="padding: 40px;"><div class="spinner-lg"></div></div>
@@ -354,21 +517,43 @@ function createDynamicPanel(id, name, config) {
     `;
 
     document.getElementById('dynamic-panels').appendChild(panel);
-
-    // ── Start WebSocket ───────────────────────────────────────
-    startScannerWS(id, config);
 }
 
 async function removeScanner(id, name) {
     const ok = await showConfirm('Remove Scanner', `Stop and remove "${name}"?`);
     if (!ok) return;
 
-    // Close WebSocket
+    // Close WebSocket + stop backend scanner
     if (_activeScanners[id]) {
         const ws = _activeScanners[id].ws;
         if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ action: 'stop' }));
             ws.close();
+        }
+        // Stop backend scanner via REST
+        const scannerId = _activeScanners[id].scannerId;
+        if (scannerId) {
+            try {
+                await fetch('/api/chart/scanner/stop', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${Auth.getToken()}`,
+                    },
+                    body: JSON.stringify({ scanner_id: scannerId }),
+                });
+            } catch(e) {}
+        }
+        // Destroy LightweightCharts instances for this scanner
+        const config = _activeScanners[id].config;
+        if (config && config.timeframes) {
+            config.timeframes.forEach(tf => {
+                const key = `${id}-${tf}`;
+                if (_chartInstances[key]) {
+                    try { _chartInstances[key].chart.remove(); } catch(e) {}
+                    delete _chartInstances[key];
+                }
+            });
         }
         delete _activeScanners[id];
     }
@@ -392,18 +577,17 @@ async function removeScanner(id, name) {
     showToast(`Scanner "${name}" removed`, 'info');
 }
 
-// ═══ WEBSOCKET SCANNER ════════════════════════════════════════
-function startScannerWS(id, config) {
-    const token = Auth.getToken();
+// ═══ WEBSOCKET — LIVE UPDATES ONLY ═══════════════════════════
+function startScannerWS(id, scannerId) {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${proto}://${location.host}/api/chart/ws/${id}`);
+    const ws = new WebSocket(`${proto}://${location.host}/api/chart/ws/${scannerId}`);
 
-    _activeScanners[id] = { ws, config, signals: [] };
+    if (_activeScanners[id]) {
+        _activeScanners[id].ws = ws;
+    }
 
     ws.onopen = () => {
-        ws.send(JSON.stringify({ action: 'start', config }));
-        const status = document.getElementById(`${id}-status`);
-        if (status) status.innerHTML = `<span class="dot dot-on"></span><span>Live</span>`;
+        console.log(`WS connected for scanner ${scannerId}`);
     };
 
     ws.onmessage = (event) => {
@@ -414,12 +598,20 @@ function startScannerWS(id, config) {
     };
 
     ws.onerror = () => {
-        showToast('Scanner connection error', 'error');
+        console.warn('Scanner WS error — live updates may be delayed');
     };
 
     ws.onclose = () => {
         const status = document.getElementById(`${id}-status`);
-        if (status) status.innerHTML = `<span class="dot dot-off"></span><span>Stopped</span>`;
+        if (status && _activeScanners[id]) {
+            status.innerHTML = `<span class="dot dot-off"></span><span>Reconnecting...</span>`;
+            // Auto-reconnect after 3 seconds
+            setTimeout(() => {
+                if (_activeScanners[id]) {
+                    startScannerWS(id, scannerId);
+                }
+            }, 3000);
+        }
     };
 }
 
@@ -427,13 +619,114 @@ function handleScannerMsg(id, msg) {
     const scanner = _activeScanners[id];
     if (!scanner) return;
 
-    if (msg.type === 'bar_update' || msg.type === 'historical') {
-        // Render chart candles
-        const bars = msg.data.bars || msg.data;
-        const tf = msg.data.timeframe || msg.timeframe;
-        if (tf && bars) renderCandleChart(id, tf, bars);
+    // ── Historical: contains candles keyed by TF ─────────────
+    if (msg.type === 'historical') {
+        const candles = msg.data.candles || {};
+        const indicators = msg.data.indicators || {};
+
+        for (const [tf, bars] of Object.entries(candles)) {
+            if (bars && bars.length > 0) {
+                initLWChart(id, tf, bars, indicators[tf] || {});
+            }
+        }
+
+        // Process historical signals
+        const signals = msg.data.signals || [];
+        // Group markers by timeframe
+        const markersByTf = {};
+        for (const sig of signals) {
+            scanner.signals.push(sig);
+            updateGlobalSignals(sig);
+            const sigEl = document.getElementById(`${id}-sig-${sig.timeframe}`);
+            if (sigEl) {
+                const cls = sig.direction === 'BUY' ? 'long' : 'short';
+                sigEl.innerHTML = `<span class="badge badge-${cls}">${sig.direction}</span>`;
+            }
+            // Collect markers
+            if (!markersByTf[sig.timeframe]) markersByTf[sig.timeframe] = [];
+            markersByTf[sig.timeframe].push({
+                time: _toChartTs(sig.bar_time),
+                position: sig.direction === 'BUY' ? 'belowBar' : 'aboveBar',
+                color: sig.direction === 'BUY' ? '#22c55e' : '#ef4444',
+                shape: sig.direction === 'BUY' ? 'arrowUp' : 'arrowDown',
+                text: sig.direction,
+            });
+        }
+        // Apply markers to charts
+        for (const tf in markersByTf) {
+            const key = `${id}-${tf}`;
+            if (_chartInstances[key]) {
+                const markers = markersByTf[tf].sort((a, b) => a.time - b.time);
+                _chartInstances[key].markers = markers;
+                try { _chartInstances[key].candleSeries.setMarkers(markers); } catch(e) {}
+            }
+        }
+        if (signals.length > 0) updateSignalStrip(id);
     }
 
+    // ── Bar updates (plural): array of {symbol, timeframe, bar}
+    if (msg.type === 'bar_updates') {
+        const updates = msg.data || [];
+        for (const upd of updates) {
+            const tf = upd.timeframe;
+            const bar = upd.bar;
+            if (!tf || !bar) continue;
+
+            const key = `${id}-${tf}`;
+            const inst = _chartInstances[key];
+            if (inst && inst.candleSeries) {
+                // Incremental update — no full re-render!
+                try {
+                    inst.candleSeries.update({
+                        time: _toChartTs(bar.time),
+                        open: bar.open,
+                        high: bar.high,
+                        low: bar.low,
+                        close: bar.close,
+                    });
+                } catch(e) { console.error('Chart update error:', e); }
+
+                // Also update expanded chart if it's viewing this tf
+                if (_expandedState.scannerId === id && _expandedState.tf === tf && _expandedState.candles) {
+                    try {
+                        _expandedState.candles.update({
+                            time: _toChartTs(bar.time),
+                            open: bar.open,
+                            high: bar.high,
+                            low: bar.low,
+                            close: bar.close,
+                        });
+                    } catch(e) {}
+                }
+            }
+            // Update price display
+            const priceEl = document.getElementById(`${id}-price-${tf}`);
+            if (priceEl) priceEl.textContent = fmtPrice(bar.close);
+        }
+    }
+
+    // ── Single bar update (legacy compat) ────────────────────
+    if (msg.type === 'bar_update') {
+        const bar = msg.data.bar || msg.data;
+        const tf = msg.data.timeframe || msg.timeframe;
+        if (tf && bar) {
+            const key = `${id}-${tf}`;
+            const inst = _chartInstances[key];
+            if (inst && inst.candleSeries) {
+                try {
+                    inst.candleSeries.update({
+                        time: _toChartTs(bar.time),
+                        open: bar.open,
+                        high: bar.high,
+                        low: bar.low,
+                        close: bar.close,
+                    });
+                } catch(e) {}
+            }
+        }
+    }
+
+    // ── Signal ───────────────────────────────────────────────
     if (msg.type === 'signal') {
         const sig = msg.data;
         scanner.signals.unshift(sig);
@@ -446,6 +739,36 @@ function handleScannerMsg(id, msg) {
             sigEl.innerHTML = `<span class="badge badge-${cls}">${sig.direction}</span>`;
         }
 
+        // Add marker to chart
+        const key = `${id}-${sig.timeframe}`;
+        const inst = _chartInstances[key];
+        if (inst) {
+            const marker = {
+                time: _toChartTs(sig.bar_time),
+                position: sig.direction === 'BUY' ? 'belowBar' : 'aboveBar',
+                color: sig.direction === 'BUY' ? '#22c55e' : '#ef4444',
+                shape: sig.direction === 'BUY' ? 'arrowUp' : 'arrowDown',
+                text: sig.direction,
+            };
+            if (!inst.markers) inst.markers = [];
+            inst.markers.push(marker);
+            inst.markers.sort((a, b) => a.time - b.time);
+            try { inst.candleSeries.setMarkers(inst.markers); } catch(e) {}
+
+            // Glow animation on the chart cell
+            const cell = document.getElementById(`${id}-cell-${sig.timeframe}`);
+            if (cell) {
+                cell.classList.remove('chart-glow-buy', 'chart-glow-sell');
+                void cell.offsetWidth; // force reflow
+                cell.classList.add(sig.direction === 'BUY' ? 'chart-glow-buy' : 'chart-glow-sell');
+            }
+
+            // Update expanded chart markers if viewing this tf
+            if (_expandedState.scannerId === id && _expandedState.tf === sig.timeframe && _expandedState.candles) {
+                try { _expandedState.candles.setMarkers(inst.markers); } catch(e) {}
+            }
+        }
+
         // Update signal strip
         updateSignalStrip(id);
 
@@ -456,6 +779,7 @@ function handleScannerMsg(id, msg) {
             sig.direction === 'BUY' ? 'success' : 'error', 5000);
     }
 
+    // ── Price tick ───────────────────────────────────────────
     if (msg.type === 'price') {
         const tf = msg.data.timeframe;
         const price = msg.data.price;
@@ -463,6 +787,7 @@ function handleScannerMsg(id, msg) {
         if (priceEl) priceEl.textContent = fmtPrice(price);
     }
 
+    // ── Error ────────────────────────────────────────────────
     if (msg.type === 'error') {
         showToast(msg.data || 'Scanner error', 'error');
     }
@@ -512,80 +837,444 @@ function updateGlobalSignals(sig) {
     while (log.children.length > 30) log.removeChild(log.lastChild);
 }
 
-// ═══ CANDLESTICK CHART RENDERER ═══════════════════════════════
-function renderCandleChart(scannerId, tf, bars) {
+// ═══ LIGHTWEIGHT CHARTS — TIMESTAMP UTILITY ═══════════════════
+function _toChartTs(isoStr) {
+    if (!isoStr) return 0;
+    return Math.floor(new Date(isoStr + (isoStr.includes('+') || isoStr.includes('Z') ? '' : 'Z')).getTime() / 1000);
+}
+
+function _getChartColors() {
+    return {
+        bg: '#0d1421',
+        text: '#94a3b8',
+        grid: '#1e2d42',
+        border: '#1e2d42',
+    };
+}
+
+// ═══ LIGHTWEIGHT CHARTS — INIT ════════════════════════════════
+function initLWChart(scannerId, tf, bars, indicatorData) {
+    const key = `${scannerId}-${tf}`;
     const container = document.getElementById(`${scannerId}-canvas-${tf}`);
-    if (!container || !bars || bars.length === 0) return;
+    if (!container) return;
 
-    const W = container.offsetWidth || 400;
-    const H = container.offsetHeight || 250;
-    const pad = { t: 10, r: 55, b: 20, l: 8 };
-    const plotW = W - pad.l - pad.r;
-    const plotH = H - pad.t - pad.b;
-
-    // Take last N bars that fit
-    const candleW = Math.max(3, Math.min(12, Math.floor(plotW / 80)));
-    const gap = Math.max(1, Math.floor(candleW * 0.4));
-    const maxBars = Math.floor(plotW / (candleW + gap));
-    const data = bars.slice(-maxBars);
-
-    if (data.length === 0) return;
-
-    const highs = data.map(b => b.high);
-    const lows = data.map(b => b.low);
-    const maxPrice = Math.max(...highs);
-    const minPrice = Math.min(...lows);
-    const range = maxPrice - minPrice || 0.0001;
-
-    const yScale = (p) => pad.t + plotH - ((p - minPrice) / range) * plotH;
-    const xPos = (i) => pad.l + i * (candleW + gap) + gap;
-
-    let svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="display:block;width:100%;height:100%;" preserveAspectRatio="none">`;
-
-    // Background
-    svg += `<rect width="${W}" height="${H}" fill="var(--bg-card)" rx="0"/>`;
-
-    // Grid lines
-    const gridLines = 5;
-    for (let i = 0; i <= gridLines; i++) {
-        const y = pad.t + (plotH / gridLines) * i;
-        const price = maxPrice - (range / gridLines) * i;
-        svg += `<line x1="${pad.l}" y1="${y}" x2="${W - pad.r}" y2="${y}" stroke="var(--border-1)" stroke-width="0.5"/>`;
-        svg += `<text x="${W - pad.r + 4}" y="${y + 3}" fill="var(--text-3)" font-size="9" font-family="var(--ff-mono)">${price.toFixed(price > 100 ? 2 : 5)}</text>`;
+    // Destroy previous chart instance if exists
+    if (_chartInstances[key]) {
+        try { _chartInstances[key].chart.remove(); } catch(e) {}
+        delete _chartInstances[key];
     }
 
-    // Candles
-    data.forEach((b, i) => {
-        const x = xPos(i);
-        const isBull = b.close >= b.open;
-        const color = isBull ? 'var(--long)' : 'var(--short)';
-        const bodyTop = yScale(Math.max(b.open, b.close));
-        const bodyBot = yScale(Math.min(b.open, b.close));
-        const bodyH = Math.max(1, bodyBot - bodyTop);
-        const wickX = x + candleW / 2;
+    // Clear loading spinner
+    container.innerHTML = '';
 
-        // Wick
-        svg += `<line x1="${wickX}" y1="${yScale(b.high)}" x2="${wickX}" y2="${yScale(b.low)}" stroke="${color}" stroke-width="1"/>`;
-        // Body
-        if (isBull) {
-            svg += `<rect x="${x}" y="${bodyTop}" width="${candleW}" height="${bodyH}" fill="none" stroke="${color}" stroke-width="1" rx="0.5"/>`;
-        } else {
-            svg += `<rect x="${x}" y="${bodyTop}" width="${candleW}" height="${bodyH}" fill="${color}" rx="0.5"/>`;
-        }
+    const colors = _getChartColors();
+    const chart = LightweightCharts.createChart(container, {
+        width: container.clientWidth,
+        height: container.clientHeight || 250,
+        layout: {
+            background: { type: 'solid', color: colors.bg },
+            textColor: colors.text,
+            fontFamily: "'Inter', 'Segoe UI', sans-serif",
+            fontSize: 11,
+        },
+        grid: {
+            vertLines: { color: colors.grid },
+            horzLines: { color: colors.grid },
+        },
+        rightPriceScale: { borderColor: colors.border },
+        timeScale: {
+            borderColor: colors.border,
+            timeVisible: true,
+            secondsVisible: false,
+        },
+        crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
     });
 
-    // Current price line
-    const lastClose = data[data.length - 1].close;
-    const lastY = yScale(lastClose);
-    const lineColor = data[data.length - 1].close >= data[data.length - 1].open ? 'var(--long)' : 'var(--short)';
-    svg += `<line x1="${pad.l}" y1="${lastY}" x2="${W - pad.r}" y2="${lastY}" stroke="${lineColor}" stroke-width="0.7" stroke-dasharray="3,3" opacity="0.6"/>`;
-    svg += `<rect x="${W - pad.r}" y="${lastY - 8}" width="50" height="16" fill="${lineColor}" rx="2"/>`;
-    svg += `<text x="${W - pad.r + 4}" y="${lastY + 3}" fill="#fff" font-size="9" font-weight="600" font-family="var(--ff-mono)">${lastClose.toFixed(lastClose > 100 ? 2 : 5)}</text>`;
+    const candleSeries = chart.addCandlestickSeries({
+        upColor: '#22c55e', downColor: '#ef4444',
+        borderUpColor: '#22c55e', borderDownColor: '#ef4444',
+        wickUpColor: '#22c55e', wickDownColor: '#ef4444',
+    });
 
-    svg += '</svg>';
-    container.innerHTML = svg;
+    // Deduplicate and sort bars
+    const uniqueBars = [];
+    const seen = new Set();
+    const sorted = bars.map(b => ({
+        time: _toChartTs(b.time),
+        open: b.open,
+        high: b.high,
+        low: b.low,
+        close: b.close,
+    })).sort((a, b) => a.time - b.time);
+
+    for (const bar of sorted) {
+        if (!seen.has(bar.time)) {
+            seen.add(bar.time);
+            uniqueBars.push(bar);
+        }
+    }
+
+    try {
+        candleSeries.setData(uniqueBars);
+    } catch(e) {
+        console.error('Error setting candle data:', e);
+    }
+
+    // Add indicator line series
+    const indicatorSeriesMap = {};
+    if (indicatorData && Object.keys(indicatorData).length > 0) {
+        const lineColors = ['#3b82f6', '#f59e0b', '#8b5cf6', '#06b6d4', '#ec4899', '#14b8a6'];
+        let colorIdx = 0;
+
+        for (const [indName, dataPoints] of Object.entries(indicatorData)) {
+            if (!dataPoints || dataPoints.length === 0) continue;
+
+            const line = chart.addLineSeries({
+                color: lineColors[colorIdx % lineColors.length],
+                lineWidth: 1,
+                title: indName,
+            });
+
+            const sortedPts = [...dataPoints]
+                .map(p => ({ time: _toChartTs(p.time), value: p.value }))
+                .sort((a, b) => a.time - b.time);
+
+            // Deduplicate
+            const uniquePts = [];
+            const ptSeen = new Set();
+            for (const pt of sortedPts) {
+                if (!ptSeen.has(pt.time)) {
+                    ptSeen.add(pt.time);
+                    uniquePts.push(pt);
+                }
+            }
+
+            try { line.setData(uniquePts); } catch(e) {}
+            indicatorSeriesMap[indName] = line;
+            colorIdx++;
+        }
+    }
+
+    // Store instance
+    _chartInstances[key] = {
+        chart,
+        candleSeries,
+        indicatorSeriesMap,
+        markers: [],
+    };
 
     // Update price display
-    const priceEl = document.getElementById(`${scannerId}-price-${tf}`);
-    if (priceEl) priceEl.textContent = fmtPrice(lastClose);
+    if (uniqueBars.length > 0) {
+        const lastClose = uniqueBars[uniqueBars.length - 1].close;
+        const priceEl = document.getElementById(`${scannerId}-price-${tf}`);
+        if (priceEl) priceEl.textContent = fmtPrice(lastClose);
+    }
 }
+
+// ═══ CHART EXPAND MODAL ═══════════════════════════════════════
+function openExpandedChart(scannerId, tf) {
+    const key = `${scannerId}-${tf}`;
+    const inst = _chartInstances[key];
+    if (!inst) return;
+
+    const modal = document.getElementById('chart-expand-modal');
+    const container = document.getElementById('chart-modal-container');
+    const title = document.getElementById('chart-modal-title');
+    const scanner = _activeScanners[scannerId];
+    const symbol = scanner ? scanner.config.symbol : '';
+
+    title.innerHTML = `${symbol} <span style="color: var(--accent); font-weight: 600;">${tf}</span>`;
+    container.innerHTML = '';
+
+    const colors = _getChartColors();
+    const chart = LightweightCharts.createChart(container, {
+        width: container.clientWidth,
+        height: container.clientHeight,
+        layout: {
+            background: { type: 'solid', color: colors.bg },
+            textColor: colors.text,
+            fontFamily: "'Inter', 'Segoe UI', sans-serif",
+            fontSize: 12,
+        },
+        grid: {
+            vertLines: { color: colors.grid },
+            horzLines: { color: colors.grid },
+        },
+        rightPriceScale: { borderColor: colors.border },
+        timeScale: {
+            borderColor: colors.border,
+            timeVisible: true,
+            secondsVisible: false,
+        },
+        crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+    });
+
+    const candleSeries = chart.addCandlestickSeries({
+        upColor: '#22c55e', downColor: '#ef4444',
+        borderUpColor: '#22c55e', borderDownColor: '#ef4444',
+        wickUpColor: '#22c55e', wickDownColor: '#ef4444',
+    });
+
+    // Clone data from original chart
+    try {
+        const data = inst.candleSeries.data();
+        candleSeries.setData(data);
+    } catch(e) {
+        console.error('Error cloning chart data:', e);
+    }
+
+    // Clone markers
+    if (inst.markers && inst.markers.length > 0) {
+        try { candleSeries.setMarkers(inst.markers); } catch(e) {}
+    }
+
+    // Clone indicators
+    if (inst.indicatorSeriesMap) {
+        for (const [indName, indSeries] of Object.entries(inst.indicatorSeriesMap)) {
+            try {
+                const line = chart.addLineSeries({
+                    color: indSeries.options().color,
+                    lineWidth: indSeries.options().lineWidth,
+                    title: indName,
+                });
+                line.setData(indSeries.data());
+            } catch(e) {}
+        }
+    }
+
+    // Store expanded state for live updates
+    _expandedState = { chart, candles: candleSeries, tf, scannerId };
+
+    modal.classList.add('open');
+
+    // Force resize after modal animation
+    setTimeout(() => {
+        chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
+    }, 50);
+}
+
+function closeExpandedChart() {
+    const modal = document.getElementById('chart-expand-modal');
+    modal.classList.remove('open');
+
+    if (_expandedState.chart) {
+        try { _expandedState.chart.remove(); } catch(e) {}
+        _expandedState = { chart: null, candles: null, tf: null, scannerId: null };
+    }
+}
+
+// ── Bind chart modal close ───────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+    const closeBtn = document.getElementById('chart-modal-close');
+    if (closeBtn) closeBtn.addEventListener('click', closeExpandedChart);
+
+    const modal = document.getElementById('chart-expand-modal');
+    if (modal) modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeExpandedChart();
+    });
+
+    // Handle window resize for all active charts
+    window.addEventListener('resize', () => {
+        for (const key in _chartInstances) {
+            const inst = _chartInstances[key];
+            const parts = key.split('-');
+            const tf = parts[parts.length - 1];
+            const scannerId = parts.slice(0, -1).join('-');
+            const container = document.getElementById(`${scannerId}-canvas-${tf}`);
+            if (container && inst.chart) {
+                try {
+                    inst.chart.applyOptions({ width: container.clientWidth });
+                } catch(e) {}
+            }
+        }
+    });
+});
+
+// ═══ DEPLOY TRADES PANEL ══════════════════════════════════════
+function initDeployTrades() {
+    // ── Mode Tabs ─────────────────────────────────────────────
+    const modeTabs = document.querySelectorAll('.trade-mode-tab');
+    const manualSection = document.getElementById('manual-trade-section');
+    const autoSection = document.getElementById('auto-trade-section');
+
+    if (!modeTabs.length) return;
+
+    modeTabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            modeTabs.forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            if (tab.dataset.mode === 'manual') {
+                manualSection.style.display = '';
+                autoSection.style.display = 'none';
+            } else {
+                manualSection.style.display = 'none';
+                autoSection.style.display = '';
+            }
+        });
+    });
+
+    // ── Manual Order Form ─────────────────────────────────────
+    const orderForm = document.getElementById('manual-order-form');
+    if (orderForm) {
+        orderForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('place-order-btn');
+            const symbol = document.getElementById('order-symbol').value.trim().toUpperCase();
+            const orderType = document.getElementById('order-type').value;
+            const direction = document.getElementById('order-direction').value;
+            const volume = parseFloat(document.getElementById('order-volume').value);
+            const slEnabled = document.getElementById('sl-enabled').checked;
+            const tpEnabled = document.getElementById('tp-enabled').checked;
+            const sl = slEnabled ? parseFloat(document.getElementById('order-sl').value) : null;
+            const tp = tpEnabled ? parseFloat(document.getElementById('order-tp').value) : null;
+            const price = orderType === 'pending' ? parseFloat(document.getElementById('order-price').value) : null;
+
+            if (!symbol) { showToast('Enter a symbol', 'warning'); return; }
+            if (!volume || volume <= 0) { showToast('Enter a valid volume', 'warning'); return; }
+
+            // ── SAFETY: Confirmation Dialog ─────────────────────
+            const dirLabel = direction.toUpperCase();
+            const ok = await showConfirm(
+                'Confirm Order',
+                `Place ${dirLabel} ${orderType} order: ${volume} lots ${symbol}` +
+                (sl ? ` | SL: ${sl}` : '') +
+                (tp ? ` | TP: ${tp}` : '') +
+                '\n\nThis will execute a REAL trade on your MT5 account.'
+            );
+            if (!ok) return;
+
+            setLoading(btn, true, 'Placing...');
+            try {
+                const result = await api('/api/order/place', 'POST', {
+                    symbol, order_type: orderType, direction, volume, price,
+                    sl, tp, sl_enabled: slEnabled, tp_enabled: tpEnabled, confirm: true
+                });
+                showToast(`Order placed — Ticket #${result.ticket}`, 'success');
+                refreshAccountInfo();
+            } catch (err) {
+                showToast(err.message, 'error');
+            } finally {
+                setLoading(btn, false, 'Place Order');
+            }
+        });
+    }
+
+    // ── SL / TP Toggle ────────────────────────────────────────
+    const slCheck = document.getElementById('sl-enabled');
+    const tpCheck = document.getElementById('tp-enabled');
+    const slInput = document.getElementById('order-sl');
+    const tpInput = document.getElementById('order-tp');
+    if (slCheck) slCheck.addEventListener('change', () => { slInput.disabled = !slCheck.checked; });
+    if (tpCheck) tpCheck.addEventListener('change', () => { tpInput.disabled = !tpCheck.checked; });
+
+    // ── Pending order price visibility ────────────────────────
+    const orderTypeSelect = document.getElementById('order-type');
+    const priceGroup = document.getElementById('order-price-group');
+    if (orderTypeSelect && priceGroup) {
+        orderTypeSelect.addEventListener('change', () => {
+            priceGroup.style.display = orderTypeSelect.value === 'pending' ? '' : 'none';
+        });
+    }
+
+    // ── Close All Positions ───────────────────────────────────
+    const closeAllBtn = document.getElementById('close-all-btn');
+    if (closeAllBtn) {
+        closeAllBtn.addEventListener('click', async () => {
+            const ok = await showConfirm('Close All Positions', 'This will close ALL open positions on your MT5 account. This action cannot be undone.');
+            if (!ok) return;
+            setLoading(closeAllBtn, true, 'Closing...');
+            try {
+                const r = await api('/api/order/close-all', 'POST');
+                showToast(`Closed ${r.closed_count || 0} positions`, 'success');
+                refreshAccountInfo();
+            } catch (err) {
+                showToast(err.message, 'error');
+            } finally {
+                setLoading(closeAllBtn, false, 'Close All');
+            }
+        });
+    }
+
+    // ── Risk Guard ────────────────────────────────────────────
+    const riskForm = document.getElementById('risk-guard-form');
+    if (riskForm) {
+        // Load current risk state
+        api('/api/order/risk').then(state => {
+            document.getElementById('risk-enabled').checked = state.enabled;
+            document.getElementById('risk-threshold').value = state.threshold_pct || 5;
+            document.getElementById('risk-auto-close').checked = state.auto_close;
+        }).catch(() => {});
+
+        riskForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const enabled = document.getElementById('risk-enabled').checked;
+            const threshold_pct = parseFloat(document.getElementById('risk-threshold').value);
+            const auto_close = document.getElementById('risk-auto-close').checked;
+
+            if (auto_close) {
+                const ok = await showConfirm('Enable Auto-Close', 'When capital risk exceeds the threshold, ALL positions will be automatically closed. Are you sure?');
+                if (!ok) return;
+            }
+
+            try {
+                await api('/api/order/risk', 'POST', { enabled, threshold_pct, auto_close });
+                showToast('Risk guard updated', 'success');
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        });
+    }
+
+    // ── Auto Trade: populate scanner list ─────────────────────
+    refreshAutoTradeList();
+}
+
+function refreshAutoTradeList() {
+    const container = document.getElementById('auto-scanner-list');
+    if (!container) return;
+
+    const ids = Object.keys(_activeScanners);
+    if (ids.length === 0) {
+        container.innerHTML = `<div class="empty-state" style="padding: 24px;"><div class="empty-state-desc">No active scanners. Launch an MTF Strategy first.</div></div>`;
+        return;
+    }
+
+    container.innerHTML = ids.map(id => {
+        const sc = _activeScanners[id];
+        const cfg = sc.config;
+        const name = sc.name || id;
+        const autoOn = sc.autoTrade || false;
+        return `<div class="auto-scanner-row">
+            <div class="auto-scanner-info">
+                <span class="auto-scanner-name">${name}</span>
+                <span class="auto-scanner-meta">${cfg.symbol} · ${cfg.strategy_name} · ${cfg.timeframes.join(', ')}</span>
+            </div>
+            <div class="auto-toggle-wrap">
+                <label class="toggle-switch">
+                    <input type="checkbox" ${autoOn ? 'checked' : ''} data-scanner="${id}" class="auto-trade-toggle">
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="auto-trade-status ${autoOn ? 'on' : 'off'}">${autoOn ? 'AUTO' : 'OFF'}</span>
+            </div>
+        </div>`;
+    }).join('');
+
+    // Attach toggle handlers
+    container.querySelectorAll('.auto-trade-toggle').forEach(toggle => {
+        toggle.addEventListener('change', async function() {
+            const sid = this.dataset.scanner;
+            const on = this.checked;
+            if (on) {
+                const ok = await showConfirm('Enable Auto Trading', 'This scanner will automatically execute trades based on its strategy signals. Are you sure?');
+                if (!ok) { this.checked = false; return; }
+            }
+            if (_activeScanners[sid]) {
+                _activeScanners[sid].autoTrade = on;
+                const label = this.closest('.auto-toggle-wrap').querySelector('.auto-trade-status');
+                if (label) { label.textContent = on ? 'AUTO' : 'OFF'; label.className = `auto-trade-status ${on ? 'on' : 'off'}`; }
+                showToast(on ? 'Auto-trade enabled' : 'Auto-trade disabled', on ? 'success' : 'info');
+            }
+        });
+    });
+}
+

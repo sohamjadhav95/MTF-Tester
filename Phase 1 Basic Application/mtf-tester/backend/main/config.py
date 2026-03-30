@@ -31,9 +31,8 @@ PORT = int(os.getenv("PORT", 8000))
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
 # ── Security ───────────────────────────────────────────────────────────
-# FERNET_KEY: generated once, stored in .env, used to encrypt MT5 passwords
-# If not set, auto-generate and warn (dev only — prod must set explicitly)
-FERNET_KEY = os.getenv("FERNET_KEY", "")
+# FERNET_KEY: disabled for testing — re-enable for production
+# FERNET_KEY = os.getenv("FERNET_KEY", "")
 
 # Session token expiry in seconds (default 8 hours)
 SESSION_EXPIRY_SECONDS = int(os.getenv("SESSION_EXPIRY_SECONDS", 28800))

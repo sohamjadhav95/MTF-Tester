@@ -37,7 +37,7 @@ async def get_timeframes():
 
 
 @router.get("/symbols")
-async def get_symbols(group: str = "Forex\\*"):
+async def get_symbols(group: str = "*"):
     if not _mt5_provider.connected:
         raise HTTPException(status_code=400, detail="MT5 not connected")
     symbols = await asyncio.to_thread(_mt5_provider.get_symbols, group=group)

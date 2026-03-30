@@ -4,9 +4,11 @@ Chart + Backtest API Routes
 POST /api/chart/backtest           — Run backtest, return full result
 GET  /api/chart/strategies         — List available strategies + their config schemas
 GET  /api/chart/strategies/{name}  — Get single strategy config schema
+POST /api/chart/scanner/start      — Start MTF scanner, return historical data (REST)
+POST /api/chart/scanner/stop       — Stop a running scanner
 
 WebSocket:
-WS   /api/chart/ws/{symbol}        — Live MTF scanner stream
+WS   /api/chart/ws/{client_id}     — Live bar updates stream (after scanner started via REST)
 
 All routes require auth.
 """
@@ -25,8 +27,11 @@ from data_collector.router import get_mt5
 log = get_logger("engine")
 router = APIRouter()
 
-# Active scanner engines — keyed by user_id+symbol+tf combination
+# Active scanner engines — keyed by scanner_id
 _active_scanners: dict[str, MTFLiveEngine] = {}
+# WebSocket connections per scanner for live broadcasting
+_scanner_websockets: dict[str, list[WebSocket]] = {}
+_scanner_counter = 0
 
 
 @router.get("/strategies")
@@ -130,62 +135,130 @@ async def run_backtest(req: BacktestRequest, request: Request):
     return result
 
 
-@router.websocket("/ws/{client_id}")
-async def scanner_ws(websocket: WebSocket, client_id: str):
+# ═══ REST-based Scanner Start/Stop (returns historical data) ═══════════
+
+@router.post("/scanner/start")
+async def start_scanner(req: MTFStartRequest, request: Request):
     """
-    WebSocket endpoint for live MTF scanner.
-    Client sends JSON: {"action": "start", "config": MTFStartRequest}
-                    or {"action": "stop"}
-    Server sends JSON: {"type": "signal" | "bar_update" | "error", "data": {...}}
+    Start a new MTF scanner. Returns historical candles, signals, and indicators
+    so the frontend can render charts immediately. Live bar updates are streamed
+    via the WebSocket endpoint.
+    """
+    mt5 = get_mt5()
+    if req.provider == "mt5" and not mt5.connected:
+        raise HTTPException(status_code=400, detail="MT5 not connected")
+
+    provider = mt5 if req.provider == "mt5" else None
+
+    global _scanner_counter
+    _scanner_counter += 1
+    scanner_id = f"scan-{_scanner_counter}"
+
+    async def broadcast(payload):
+        """Broadcast live updates to all connected WebSockets for this scanner."""
+        ws_list = _scanner_websockets.get(scanner_id, [])
+        dead = []
+        for ws in ws_list:
+            try:
+                await ws.send_json(payload)
+            except Exception:
+                dead.append(ws)
+        for ws in dead:
+            ws_list.remove(ws)
+
+    engine = MTFLiveEngine(
+        symbol=req.symbol,
+        timeframes=req.timeframes,
+        strategy_name=req.strategy_name,
+        settings=req.settings,
+        provider=provider,
+        broadcast_callback=broadcast,
+        start_time=req.start_time,
+    )
+
+    # Fetch historical data synchronously (before starting live loop)
+    try:
+        hist_candles, hist_signals, hist_indicators = await asyncio.to_thread(
+            engine.get_historical_context
+        )
+    except Exception as e:
+        log.error(f"Historical fetch failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to load historical data: {e}")
+
+    # Store engine and start live polling
+    _active_scanners[scanner_id] = engine
+    _scanner_websockets[scanner_id] = []
+
+    # Start live updates (polling or WS streams) in background
+    asyncio.create_task(engine.start_live_only())
+
+    log.info(f"Scanner started | id={scanner_id} | symbol={req.symbol} | tfs={req.timeframes}")
+
+    return {
+        "success": True,
+        "scanner_id": scanner_id,
+        "historical_candles": hist_candles,
+        "historical_signals": hist_signals,
+        "historical_indicators": hist_indicators,
+    }
+
+
+@router.post("/scanner/stop")
+async def stop_scanner(request: Request):
+    """Stop a running scanner by scanner_id."""
+    body = await request.json()
+    scanner_id = body.get("scanner_id", "")
+
+    if scanner_id in _active_scanners:
+        _active_scanners[scanner_id].stop()
+        del _active_scanners[scanner_id]
+        # Close all WebSockets for this scanner
+        for ws in _scanner_websockets.pop(scanner_id, []):
+            try:
+                await ws.close()
+            except Exception:
+                pass
+        log.info(f"Scanner stopped | id={scanner_id}")
+        return {"success": True}
+
+    return {"success": False, "detail": "Scanner not found"}
+
+
+# ═══ WebSocket for Live Updates Only ═══════════════════════════════════
+
+@router.websocket("/ws/{scanner_id}")
+async def scanner_ws(websocket: WebSocket, scanner_id: str):
+    """
+    WebSocket for live bar updates and signals.
+    Client connects AFTER calling /scanner/start which returns historical data.
+    This WS only receives live updates — no historical replay.
     """
     await websocket.accept()
-    engine: MTFLiveEngine = None
+
+    # Register this WS connection for the scanner
+    if scanner_id not in _scanner_websockets:
+        _scanner_websockets[scanner_id] = []
+    _scanner_websockets[scanner_id].append(websocket)
+
+    log.info(f"WS connected | scanner={scanner_id}")
 
     try:
         while True:
+            # Keep connection alive; listen for stop/ping messages
             raw = await websocket.receive_text()
-            msg = json.loads(raw)
-            action = msg.get("action")
-
-            if action == "start":
-                config = MTFStartRequest(**msg.get("config", {}))
-                mt5 = get_mt5()
-                if config.provider == "mt5" and not mt5.connected:
-                    await websocket.send_json({"type": "error", "data": "MT5 not connected"})
-                    continue
-
-                provider = mt5 if config.provider == "mt5" else None  # Binance TBD
-
-                async def broadcast(payload):
-                    try:
-                        await websocket.send_json(payload)
-                    except Exception:
-                        pass
-
-                engine = MTFLiveEngine(
-                    symbol=config.symbol,
-                    timeframes=config.timeframes,
-                    strategy_name=config.strategy_name,
-                    settings=config.settings,
-                    provider=provider,
-                    broadcast_callback=broadcast,
-                    start_time=config.start_time,
-                )
-                asyncio.create_task(engine.start())
-                await websocket.send_json({"type": "started", "data": config.symbol})
-
-            elif action == "stop":
-                if engine:
-                    engine.stop()
-                    engine = None
-                await websocket.send_json({"type": "stopped"})
-
+            try:
+                msg = json.loads(raw)
+                if msg.get("action") == "stop":
+                    break
+            except Exception:
+                pass
     except WebSocketDisconnect:
-        if engine:
-            engine.stop()
+        pass
     except Exception as e:
-        log.error(f"WebSocket error | client={client_id} | error={e}")
-        try:
-            await websocket.send_json({"type": "error", "data": str(e)})
-        except Exception:
-            pass
+        log.error(f"WS error | scanner={scanner_id} | error={e}")
+    finally:
+        # Unregister
+        ws_list = _scanner_websockets.get(scanner_id, [])
+        if websocket in ws_list:
+            ws_list.remove(websocket)
+        log.info(f"WS disconnected | scanner={scanner_id}")

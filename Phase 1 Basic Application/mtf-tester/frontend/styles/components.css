@@ -21,6 +21,10 @@
 .btn-short:hover { background: #e63e4d; }
 .btn-ghost { background: transparent; color: var(--text-2); }
 .btn-ghost:hover { background: var(--bg-tertiary); color: var(--text-1); }
+.btn-warning { background: var(--warning); color: #1a1a2e; }
+.btn-warning:hover { background: #e8a020; }
+.btn-error { background: var(--error); color: #fff; }
+.btn-error:hover { background: #d83040; }
 .btn-xs { padding: 3px 8px; font-size: var(--fs-2xs); }
 .btn-sm { padding: 5px 10px; font-size: var(--fs-xs); }
 .btn-lg { padding: 10px 20px; font-size: var(--fs-md); }
@@ -86,6 +90,7 @@
 .badge-info { background: var(--accent-muted); color: var(--accent); }
 .badge-success { background: rgba(0,192,135,0.1); color: var(--success); }
 .badge-error { background: rgba(255,71,87,0.1); color: var(--error); }
+.badge-warning { background: rgba(255,175,43,0.12); color: var(--warning); }
 .badge-muted { background: rgba(78,91,110,0.15); color: var(--text-3); }
 
 /* ── Status Dot ────────────────────────────────────────────── */

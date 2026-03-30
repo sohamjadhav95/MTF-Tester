@@ -3,12 +3,9 @@ Authentication Module
 ======================
 Handles password hashing and session token lifecycle.
 
-SECURITY RULES:
-- bcrypt with cost factor from config (default 12)
-- Session tokens: 32 random bytes, base64url encoded
-- Only SHA-256 hash of token is stored in DB
-- MT5 passwords: Fernet symmetric encryption
-- Fernet key loaded from env, auto-generated if missing (warns loudly)
+NOTE: Fernet encryption for MT5 credentials is DISABLED for testing.
+      The encrypt/decrypt functions pass through plaintext.
+      Re-enable by uncommenting the Fernet implementation below.
 """
 
 import secrets
@@ -16,28 +13,25 @@ import base64
 import bcrypt
 import os
 from typing import Optional
-from main.config import BCRYPT_ROUNDS, FERNET_KEY
+from main.config import BCRYPT_ROUNDS
 from main.logger import get_logger
 
 log = get_logger("auth")
 
-# ── Fernet Setup ───────────────────────────────────────────────────────
-def _get_fernet():
-    """Get or generate Fernet encryption instance."""
-    from cryptography.fernet import Fernet
-    key = FERNET_KEY
-    if not key:
-        # Auto-generate for dev — in production this MUST be set in .env
-        key = Fernet.generate_key().decode()
-        log.warning(
-            "FERNET_KEY not set in .env — auto-generated for this session only. "
-            "MT5 credentials encrypted with this session key will be unreadable after restart. "
-            "Set FERNET_KEY in .env for production."
-        )
-        os.environ["FERNET_KEY"] = key
-    if isinstance(key, str):
-        key = key.encode()
-    return Fernet(key)
+# ── Fernet Setup (DISABLED for testing) ────────────────────────────────
+# To re-enable, uncomment this block and update encrypt/decrypt below.
+#
+# from main.config import FERNET_KEY
+# def _get_fernet():
+#     from cryptography.fernet import Fernet
+#     key = FERNET_KEY
+#     if not key:
+#         key = Fernet.generate_key().decode()
+#         log.warning("FERNET_KEY not set — auto-generated for this session only.")
+#         os.environ["FERNET_KEY"] = key
+#     if isinstance(key, str):
+#         key = key.encode()
+#     return Fernet(key)
 
 # ── Password Hashing ───────────────────────────────────────────────────
 def hash_password(plain: str) -> str:
@@ -56,13 +50,12 @@ def generate_token() -> str:
     """Generate a cryptographically random 32-byte base64url token."""
     return secrets.token_urlsafe(32)
 
-# ── MT5 Credential Encryption ──────────────────────────────────────────
+# ── MT5 Credential Encryption (DISABLED — passthrough for testing) ─────
 def encrypt_mt5_password(plain: str) -> str:
-    """Encrypt MT5 password with Fernet. Returns base64 ciphertext."""
-    f = _get_fernet()
-    return f.encrypt(plain.encode("utf-8")).decode("utf-8")
+    """Store MT5 password as-is (encryption disabled for testing)."""
+    return plain
 
 def decrypt_mt5_password(ciphertext: str) -> str:
-    """Decrypt MT5 password. Raises if key is wrong or token invalid."""
-    f = _get_fernet()
-    return f.decrypt(ciphertext.encode("utf-8")).decode("utf-8")
+    """Return MT5 password as-is (encryption disabled for testing)."""
+    return ciphertext
+

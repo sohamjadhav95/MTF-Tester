@@ -65,6 +65,13 @@
                 <div class="nav-divider" id="strat-divider" style="display:none;"></div>
                 <div id="strat-nav-list"></div>
 
+                <!-- Deploy Trades -->
+                <div class="nav-divider"></div>
+                <div class="nav-item" data-panel="deploy-trades" id="nav-deploy-trades">
+                    <span class="nav-icon">🛡️</span>
+                    <span class="nav-label">Deploy Trades</span>
+                </div>
+
                 <!-- Bottom nav -->
                 <div class="nav-divider"></div>
                 <div class="nav-item" data-panel="create-strategy" id="nav-create-strategy">
@@ -195,7 +202,9 @@
                         <!-- Symbol -->
                         <div class="form-group">
                             <label class="form-label">Symbol</label>
-                            <input class="form-input" id="cfg-symbol" placeholder="e.g. EURUSD" value="EURUSD" required>
+                            <input class="form-input" id="cfg-symbol" placeholder="Search symbols (e.g. EURUSD)" autocomplete="off" required oninput="filterSymbolList()">
+                            <div class="symbol-dropdown" id="cfg-symbol-dropdown"></div>
+                            <div class="form-hint">Select a symbol from your MT5 broker</div>
                         </div>
 
                         <!-- Timeframes -->
@@ -250,10 +259,133 @@
                 </div>
             </div>
 
+            <!-- ─── DEPLOY TRADES PANEL ─────────────────────── -->
+            <div class="panel" id="panel-deploy-trades">
+                <div class="panel-header">
+                    <div style="display:flex; align-items:center; gap: var(--sp-3);">
+                        <span class="panel-header-title">Deploy Trades</span>
+                        <span class="badge badge-warning">LIVE</span>
+                    </div>
+                    <div class="panel-header-actions">
+                        <button class="btn btn-error btn-sm" id="close-all-btn">Close All Positions</button>
+                    </div>
+                </div>
+                <div class="panel-body">
+
+                    <!-- Mode Tabs -->
+                    <div class="trade-mode-tabs">
+                        <button class="trade-mode-tab active" data-mode="manual">Manual Order</button>
+                        <button class="trade-mode-tab" data-mode="auto">Auto Mode</button>
+                    </div>
+
+                    <!-- ═══ MANUAL TRADE SECTION ═══════════════ -->
+                    <div id="manual-trade-section">
+                        <div class="dash-section">
+                            <div class="dash-section-title">Place Order</div>
+                            <form class="order-form" id="manual-order-form" autocomplete="off">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label class="form-label">Symbol</label>
+                                        <input class="form-input" id="order-symbol" placeholder="e.g. EURUSD" value="EURUSD" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">Order Type</label>
+                                        <select class="form-input form-select" id="order-type">
+                                            <option value="market">Market</option>
+                                            <option value="pending">Pending</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label class="form-label">Direction</label>
+                                        <select class="form-input form-select" id="order-direction">
+                                            <option value="buy">BUY</option>
+                                            <option value="sell">SELL</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">Volume (lots)</label>
+                                        <input class="form-input" id="order-volume" type="number" step="0.01" min="0.01" value="0.01" required>
+                                    </div>
+                                </div>
+                                <div class="form-group" id="order-price-group" style="display:none;">
+                                    <label class="form-label">Price</label>
+                                    <input class="form-input" id="order-price" type="number" step="0.00001" placeholder="Pending order price">
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label class="form-checkbox">
+                                            <input type="checkbox" id="sl-enabled"> Stop Loss
+                                        </label>
+                                        <input class="form-input" id="order-sl" type="number" step="0.00001" placeholder="SL price" disabled>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-checkbox">
+                                            <input type="checkbox" id="tp-enabled"> Take Profit
+                                        </label>
+                                        <input class="form-input" id="order-tp" type="number" step="0.00001" placeholder="TP price" disabled>
+                                    </div>
+                                </div>
+                                <button type="submit" class="btn btn-primary btn-block btn-lg" id="place-order-btn">
+                                    Place Order
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <!-- ═══ AUTO TRADE SECTION ═════════════════ -->
+                    <div id="auto-trade-section" style="display:none;">
+                        <div class="dash-section">
+                            <div class="dash-section-title">Auto Trading — Scanner Selection</div>
+                            <div class="form-hint" style="margin-bottom: var(--sp-3);">
+                                Enable auto-trade on active strategy scanners. When enabled, signals will be automatically executed as market orders.
+                            </div>
+                            <div id="auto-scanner-list">
+                                <div class="empty-state" style="padding: 24px;">
+                                    <div class="empty-state-desc">No active scanners. Launch an MTF Strategy first.</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ═══ RISK GUARD ═════════════════════════ -->
+                    <div class="dash-section" style="margin-top: var(--sp-4);">
+                        <div class="dash-section-title">Risk Guard</div>
+                        <form id="risk-guard-form" autocomplete="off">
+                            <div class="form-row" style="align-items:center;">
+                                <label class="form-checkbox" style="flex: 1;">
+                                    <input type="checkbox" id="risk-enabled"> Enable Risk Threshold
+                                </label>
+                                <div class="form-group" style="flex: 1;">
+                                    <label class="form-label">Max Capital Risk (%)</label>
+                                    <input class="form-input" id="risk-threshold" type="number" step="0.1" min="0.1" max="100" value="5">
+                                </div>
+                            </div>
+                            <label class="form-checkbox">
+                                <input type="checkbox" id="risk-auto-close"> Auto-close all positions on breach
+                            </label>
+                            <button type="submit" class="btn btn-warning btn-sm" style="margin-top: var(--sp-3);">Update Risk Guard</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
             <!-- ─── DYNAMIC STRATEGY PANELS (injected by JS) ── -->
             <div id="dynamic-panels" style="display:contents;"></div>
 
         </main>
+    </div>
+</div>
+
+<!-- ═══ CHART EXPAND MODAL ════════════════════════════════════ -->
+<div class="chart-modal-overlay" id="chart-expand-modal">
+    <div class="chart-modal-content">
+        <div class="chart-modal-header">
+            <h2 class="chart-modal-title" id="chart-modal-title">Chart</h2>
+            <button class="chart-modal-close" id="chart-modal-close">&times;</button>
+        </div>
+        <div class="chart-modal-body" id="chart-modal-container"></div>
     </div>
 </div>
 
@@ -273,6 +405,7 @@
 <div class="toast-container" id="toast-container"></div>
 
 <!-- ═══ SCRIPTS ═══════════════════════════════════════════════ -->
+<script src="https://unpkg.com/lightweight-charts@4.2.2/dist/lightweight-charts.standalone.production.js"></script>
 <script src="/js/core.js"></script>
 <script src="/js/dashboard.js"></script>
 <script src="/js/scanner.js"></script>

@@ -131,6 +131,16 @@ class MTFLiveEngine:
             # MT5: poll every 5 seconds
             self._poll_task = asyncio.create_task(self._mt5_poll_loop())
 
+    async def start_live_only(self):
+        """Start ONLY the live polling/streaming loop (historical data already provided via REST)."""
+        self._running = True
+        log.info(f"MTF live polling started | symbol={self.symbol} | tfs={self.timeframes}")
+
+        if self.is_binance:
+            self._start_binance_streams()
+        else:
+            self._poll_task = asyncio.create_task(self._mt5_poll_loop())
+
     def stop(self):
         """Stop all running tasks and WS connections."""
         self._running = False
@@ -341,9 +351,6 @@ class MTFLiveEngine:
                     continue
 
         historical_signals.sort(key=lambda x: x["time"], reverse=True)
-
-        if self.is_binance:
-            self._start_binance_streams()
 
         return historical_candles, historical_signals, historical_indicators
 

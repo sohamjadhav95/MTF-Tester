@@ -6,9 +6,6 @@ echo.
 
 cd /d "%~dp0\backend"
 
-echo Installing dependencies...
-pip install -r "%~dp0\requirements.txt" --quiet
-
 echo.
 echo Starting server at http://127.0.0.1:8000
 echo Press Ctrl+C to stop.
