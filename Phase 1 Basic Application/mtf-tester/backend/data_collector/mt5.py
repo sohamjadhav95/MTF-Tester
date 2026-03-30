@@ -208,20 +208,10 @@ class MT5Provider(DataProvider):
                 f"from {date_from} to {date_to}. MT5 error: {error}"
             )
 
-        # Compute MT5 broker offset from UTC
-        import time as time_mod
-        tick = mt5.symbol_info_tick(symbol)
-        if tick and getattr(tick, "time", 0) > 0:
-            utc_now = time_mod.time() 
-            broker_time = tick.time
-            # Round to nearest hour (or half hour for some brokers)
-            offset_sec = round((broker_time - utc_now) / 1800) * 1800
-        else:
-            offset_sec = 0
-
         df = pd.DataFrame(rates)
-        # MT5 times are in broker time. Subtract offset to get UTC, then localize to UTC
-        df["time"] = pd.to_datetime(df["time"] - offset_sec, unit="s", utc=True)
+        # Use raw MT5 timestamps (broker/server time) — no offset conversion
+        # This ensures consistency between historical and live data
+        df["time"] = pd.to_datetime(df["time"], unit="s")
         df = df.rename(columns={"tick_volume": "volume"})
         df = df[["time", "open", "high", "low", "close", "volume", "spread"]]
         df = df.reset_index(drop=True)
@@ -250,20 +240,10 @@ class MT5Provider(DataProvider):
         if rates is None or len(rates) == 0:
             return pd.DataFrame()
 
-        # Compute MT5 broker offset from UTC
-        import time as time_mod
-        tick = mt5.symbol_info_tick(symbol)
-        if tick and getattr(tick, "time", 0) > 0:
-            utc_now = time_mod.time() 
-            broker_time = tick.time
-            offset_sec = round((broker_time - utc_now) / 1800) * 1800
-        else:
-            offset_sec = 0
-
         df = pd.DataFrame(rates)
-        # Convert broker time to UTC
-        df["time"] = pd.to_datetime(df["time"] - offset_sec, unit="s", utc=True)
-        df["volume"] = df.get("tick_volume", 0)  # Use tick_volume as volume
+        # Use raw MT5 timestamps (broker/server time) — no offset conversion
+        df["time"] = pd.to_datetime(df["time"], unit="s")
+        df["volume"] = df.get("tick_volume", 0)
         
         return df[["time", "open", "high", "low", "close", "volume"]]
 

@@ -840,7 +840,8 @@ function updateGlobalSignals(sig) {
 // ═══ LIGHTWEIGHT CHARTS — TIMESTAMP UTILITY ═══════════════════
 function _toChartTs(isoStr) {
     if (!isoStr) return 0;
-    return Math.floor(new Date(isoStr + (isoStr.includes('+') || isoStr.includes('Z') ? '' : 'Z')).getTime() / 1000);
+    // Parse ISO string as-is (no forced UTC). Matches v1.5's _toTs.
+    return Math.floor(new Date(isoStr).getTime() / 1000);
 }
 
 function _getChartColors() {

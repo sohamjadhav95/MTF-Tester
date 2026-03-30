@@ -294,8 +294,10 @@ class MTFLiveEngine:
 
             candles = []
             for _, row in df.iterrows():
+                time_val = row["time"]
+                time_str = time_val.isoformat() if hasattr(time_val, "isoformat") else str(time_val)
                 candles.append({
-                    "time": row["time"].isoformat() if hasattr(row["time"], "isoformat") else str(row["time"]),
+                    "time": time_str,
                     "open": float(row["open"]),
                     "high": float(row["high"]),
                     "low": float(row["low"]),
@@ -303,6 +305,8 @@ class MTFLiveEngine:
                     "volume": int(row["volume"] if pd.notna(row["volume"]) else 0)
                 })
             historical_candles[tf] = candles
+            if candles:
+                log.info(f"HIST [{tf}] first={candles[0]['time']} last={candles[-1]['time']} type={type(df.iloc[0]['time'])} bars={len(candles)}")
 
             # Indicator calculation
             strategy = self.strategies[tf]
@@ -400,6 +404,7 @@ class MTFLiveEngine:
                 "close": float(df.iloc[current_idx]["close"]),
                 "volume": int(df.iloc[current_idx]["volume"] if pd.notna(df.iloc[current_idx]["volume"]) else 0)
             }
+            log.info(f"LIVE [{tf}] time={bar_dict['time']} type={type(current_time)}")
             updates.append({"symbol": self.symbol, "timeframe": tf, "bar": bar_dict})
 
             strategy = self.strategies[tf]
