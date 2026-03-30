@@ -327,3 +327,16 @@ def write_order_audit(user_id: str, action: str, symbol: str = None,
         print(f"[CRITICAL] Order audit write failed: {e}", file=sys.stderr)
     finally:
         conn.close()
+
+
+def get_order_history(user_id: str, limit: int = 100) -> list[dict]:
+    """Read order audit log for a user. Uses the standard _get_conn() pattern."""
+    conn = _get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM order_audit WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?",
+            (user_id, limit)
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()

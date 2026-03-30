@@ -30,8 +30,11 @@ class RiskGuard:
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
                     self._task = asyncio.create_task(self._monitor_loop())
-            except RuntimeError:
-                pass  # No event loop available
+                    log.info(f"Risk monitor started | threshold={threshold_pct}% | auto_close={auto_close}")
+                else:
+                    log.error("Risk monitor FAILED to start: event loop is not running")
+            except RuntimeError as e:
+                log.error(f"Risk monitor FAILED to start: {e}")
         elif not enabled and self._task:
             self._task.cancel()
             self._task = None

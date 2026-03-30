@@ -19,7 +19,7 @@ All routes require auth. Every order attempt is written to order_audit.
 import asyncio
 from fastapi import APIRouter, Request, HTTPException
 from main.models import OrderRequest, ClosePositionRequest, RiskThresholdRequest
-from main.db import write_order_audit
+from main.db import write_order_audit, get_order_history
 from main.logger import get_logger
 from order.validator import validate_order
 from order.risk import RiskGuard
@@ -98,11 +98,21 @@ async def close_position(ticket: int, request: Request):
     user_id = request.state.user_id
     ip = request.client.host if request.client else "unknown"
 
+    # Fetch position details BEFORE closing for complete audit
+    positions = await asyncio.to_thread(mt5.get_positions)
+    pos_info = next((p for p in positions if p["ticket"] == ticket), None)
+    pos_symbol = pos_info["symbol"] if pos_info else None
+    pos_direction = pos_info["type"] if pos_info else None  # "buy" or "sell"
+    pos_volume = pos_info["volume"] if pos_info else None
+
     result = await asyncio.to_thread(mt5.close_position, ticket)
 
     write_order_audit(
         user_id=user_id,
         action="close" if result["success"] else "close_failed",
+        symbol=pos_symbol,
+        direction=pos_direction,
+        volume=pos_volume,
         result=result, ip_address=ip,
         session_id=request.state.session_id,
     )
@@ -110,7 +120,7 @@ async def close_position(ticket: int, request: Request):
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["error"])
 
-    log.info(f"Position closed | user={user_id} | ticket={ticket}")
+    log.info(f"Position closed | user={user_id} | ticket={ticket} | {pos_symbol}")
     return result
 
 
@@ -167,15 +177,7 @@ async def get_risk():
 
 
 @router.get("/history")
-async def get_order_history(request: Request, limit: int = 100):
+async def get_history(request: Request, limit: int = 100):
     """Return order audit log for current user."""
-    import sqlite3
-    from main.config import DATABASE_PATH
-    conn = sqlite3.connect(str(DATABASE_PATH))
-    conn.row_factory = sqlite3.Row
-    rows = conn.execute(
-        "SELECT * FROM order_audit WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?",
-        (request.state.user_id, limit)
-    ).fetchall()
-    conn.close()
-    return {"history": [dict(r) for r in rows]}
+    history = get_order_history(request.state.user_id, limit)
+    return {"history": history}

@@ -211,21 +211,71 @@ function selectSymbol(name) {
     if (dropdown) dropdown.classList.remove('open');
 }
 
-// Close symbol dropdown when clicking outside
+// Close symbol dropdowns when clicking outside
 document.addEventListener('click', (e) => {
-    const dropdown = document.getElementById('cfg-symbol-dropdown');
-    const input = document.getElementById('cfg-symbol');
-    if (dropdown && !dropdown.contains(e.target) && e.target !== input) {
-        dropdown.classList.remove('open');
+    // Scanner symbol dropdown
+    const cfgDropdown = document.getElementById('cfg-symbol-dropdown');
+    const cfgInput = document.getElementById('cfg-symbol');
+    if (cfgDropdown && !cfgDropdown.contains(e.target) && e.target !== cfgInput) {
+        cfgDropdown.classList.remove('open');
+    }
+    // Order symbol dropdown
+    const orderDropdown = document.getElementById('order-symbol-dropdown');
+    const orderInput = document.getElementById('order-symbol');
+    if (orderDropdown && !orderDropdown.contains(e.target) && e.target !== orderInput) {
+        orderDropdown.classList.remove('open');
     }
 });
 
-// Show dropdown when focusing on the symbol input
+// Show dropdown when focusing on symbol inputs
 document.addEventListener('focusin', (e) => {
     if (e.target && e.target.id === 'cfg-symbol') {
         filterSymbolList();
     }
+    if (e.target && e.target.id === 'order-symbol') {
+        filterOrderSymbolList();
+    }
 });
+
+// ═══ ORDER SYMBOL AUTOCOMPLETE ═══════════════════════════════
+function filterOrderSymbolList() {
+    const input = document.getElementById('order-symbol');
+    const dropdown = document.getElementById('order-symbol-dropdown');
+    if (!input || !dropdown) return;
+
+    const q = input.value.trim().toLowerCase();
+
+    if (_mt5Symbols.length === 0) {
+        dropdown.innerHTML = '<div class="sym-empty">Connect to MT5 to load symbols</div>';
+        dropdown.classList.add('open');
+        return;
+    }
+
+    const filtered = _mt5Symbols.filter(s =>
+        s.name.toLowerCase().includes(q) || (s.description || '').toLowerCase().includes(q)
+    );
+
+    if (filtered.length === 0) {
+        dropdown.innerHTML = '<div class="sym-empty">No symbols match your search</div>';
+        dropdown.classList.add('open');
+        return;
+    }
+
+    dropdown.innerHTML = filtered.slice(0, 40).map(s => `
+        <div class="sym-item ${input.value === s.name ? 'active' : ''}" onclick="selectOrderSymbol('${s.name}')">
+            <span class="sym-name">${s.name}</span>
+            <span class="sym-desc">${s.description || ''}</span>
+        </div>
+    `).join('');
+    dropdown.classList.add('open');
+}
+
+function selectOrderSymbol(name) {
+    const input = document.getElementById('order-symbol');
+    const dropdown = document.getElementById('order-symbol-dropdown');
+    if (input) input.value = name;
+    if (dropdown) dropdown.classList.remove('open');
+}
 
 async function refreshAccountInfo() {
     try {
@@ -1064,8 +1114,8 @@ function closeExpandedChart() {
     }
 }
 
-// ── Bind chart modal close ───────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
+// ── Bind chart modal close + window resize (runs immediately) ─
+(function() {
     const closeBtn = document.getElementById('chart-modal-close');
     if (closeBtn) closeBtn.addEventListener('click', closeExpandedChart);
 
@@ -1089,7 +1139,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
     });
-});
+})();
 
 // ═══ DEPLOY TRADES PANEL ══════════════════════════════════════
 function initDeployTrades() {
@@ -1120,7 +1170,7 @@ function initDeployTrades() {
         orderForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const btn = document.getElementById('place-order-btn');
-            const symbol = document.getElementById('order-symbol').value.trim().toUpperCase();
+            const symbol = document.getElementById('order-symbol').value.trim();
             const orderType = document.getElementById('order-type').value;
             const direction = document.getElementById('order-direction').value;
             const volume = parseFloat(document.getElementById('order-volume').value);

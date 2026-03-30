@@ -19,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from main.config import CORS_ORIGINS, FRONTEND_DIR, HOST, PORT
+from main.config import CORS_ORIGINS, FRONTEND_DIR, HOST, PORT, DEBUG
 from main.db import init_db, cleanup_expired_sessions
 from main.middleware import (
     AuthMiddleware,
@@ -43,7 +43,7 @@ app = FastAPI(
     title="MTF Tester API",
     description="Production-grade algorithmic trading platform",
     version="2.0.0",
-    docs_url="/api/docs",
+    docs_url="/api/docs" if DEBUG else None,
     redoc_url=None,
 )
 

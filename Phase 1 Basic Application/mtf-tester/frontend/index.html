@@ -286,7 +286,8 @@
                                 <div class="form-row">
                                     <div class="form-group">
                                         <label class="form-label">Symbol</label>
-                                        <input class="form-input" id="order-symbol" placeholder="e.g. EURUSD" value="EURUSD" required>
+                                        <input class="form-input" id="order-symbol" placeholder="Search symbols..." autocomplete="off" required oninput="filterOrderSymbolList()">
+                                        <div class="symbol-dropdown" id="order-symbol-dropdown"></div>
                                     </div>
                                     <div class="form-group">
                                         <label class="form-label">Order Type</label>
@@ -408,7 +409,6 @@
 <script src="https://unpkg.com/lightweight-charts@4.2.2/dist/lightweight-charts.standalone.production.js"></script>
 <script src="/js/core.js"></script>
 <script src="/js/dashboard.js"></script>
-<script src="/js/scanner.js"></script>
 <script src="/js/assistant.js"></script>
 
 </body>

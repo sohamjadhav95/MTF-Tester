@@ -218,6 +218,10 @@ async def stop_scanner(request: Request):
                 await ws.close()
             except Exception:
                 pass
+        # Reset counter when no scanners active
+        global _scanner_counter
+        if not _active_scanners:
+            _scanner_counter = 0
         log.info(f"Scanner stopped | id={scanner_id}")
         return {"success": True}
 
@@ -257,8 +261,19 @@ async def scanner_ws(websocket: WebSocket, scanner_id: str):
     except Exception as e:
         log.error(f"WS error | scanner={scanner_id} | error={e}")
     finally:
-        # Unregister
+        # Unregister this WS
         ws_list = _scanner_websockets.get(scanner_id, [])
         if websocket in ws_list:
             ws_list.remove(websocket)
         log.info(f"WS disconnected | scanner={scanner_id}")
+
+        # Fix #12: If no more WS clients, auto-stop the orphaned engine
+        remaining = _scanner_websockets.get(scanner_id, [])
+        if not remaining and scanner_id in _active_scanners:
+            log.info(f"No WS clients left — auto-stopping scanner {scanner_id}")
+            _active_scanners[scanner_id].stop()
+            del _active_scanners[scanner_id]
+            _scanner_websockets.pop(scanner_id, None)
+            global _scanner_counter
+            if not _active_scanners:
+                _scanner_counter = 0

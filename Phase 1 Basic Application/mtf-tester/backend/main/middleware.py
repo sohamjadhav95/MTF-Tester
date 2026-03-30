@@ -73,16 +73,27 @@ class AuthMiddleware(BaseHTTPMiddleware):
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """
     Simple in-memory rate limiter.
-    Limits: /api/auth/* → 5 req/min per IP
+    Limits: /api/auth/login, /api/auth/register → 5 req/min per IP
             /api/order/* → 10 req/min per user
             others → 120 req/min per IP
     """
+    # Paths that get the strict auth rate limit (not /me, /session, etc.)
+    AUTH_LIMITED_PATHS = {"/api/auth/login", "/api/auth/register"}
+
     def __init__(self, app):
         super().__init__(app)
         self._hits: dict = defaultdict(list)
+        self._last_cleanup = time.time()
 
     def _is_limited(self, key: str, max_hits: int, window: int = 60) -> bool:
         now = time.time()
+        # Periodic cleanup: every 120s, remove all stale entries
+        if now - self._last_cleanup > 120:
+            stale_keys = [k for k, v in self._hits.items() if not v or now - v[-1] > window]
+            for k in stale_keys:
+                del self._hits[k]
+            self._last_cleanup = now
+
         hits = [t for t in self._hits[key] if now - t < window]
         self._hits[key] = hits
         if len(hits) >= max_hits:
@@ -94,7 +105,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         ip = request.client.host if request.client else "unknown"
 
-        if path.startswith("/api/auth"):
+        if path in self.AUTH_LIMITED_PATHS:
             if self._is_limited(f"auth:{ip}", max_hits=5):
                 return JSONResponse(
                     status_code=429,
