@@ -1,9 +1,9 @@
 """
-Reverse EMA Crossover Strategy
-================================
-Identical to EMA Crossover but with inverted signal logic:
-  - BUY  when fast EMA crosses BELOW slow EMA (counter-trend)
-  - SELL when fast EMA crosses ABOVE slow EMA (counter-trend)
+Reverse EMA Crossover Strategy — Dead Template Implementation
+===============================================================
+Strategy type: indicator
+Signal: BUY  when fast EMA crosses BELOW slow EMA (counter-trend)
+        SELL when fast EMA crosses ABOVE slow EMA (counter-trend)
 
 Useful for mean-reversion testing or comparing with standard EMA.
 """
@@ -16,12 +16,25 @@ import numpy as np
 import pandas as pd
 from pydantic import Field
 
-from ._template import BaseStrategy, StrategyConfig
+from strategies._template import BaseStrategy, StrategyConfig, IndicatorPlot
 
 
-# ─── Pydantic Config ────────────────────────────────────────────
-class ReverseEMAConfig(StrategyConfig):
-    """Typed configuration for the Reverse EMA Crossover strategy."""
+# ════════════════════════════════════════════════════════════════════
+# [A] STRATEGY METADATA
+# ════════════════════════════════════════════════════════════════════
+
+STRATEGY_NAME        = "Reverse EMA Crossover"
+STRATEGY_DESCRIPTION = "Counter-trend EMA — BUY when fast crosses below slow, SELL when fast crosses above slow."
+STRATEGY_VERSION     = "2.0"
+STRATEGY_TYPE        = "indicator"
+
+
+# ════════════════════════════════════════════════════════════════════
+# [B] SETTINGS SCHEMA
+# ════════════════════════════════════════════════════════════════════
+
+class StrategySettings(StrategyConfig):
+    """Reverse EMA Crossover configuration."""
 
     fast_period: int = Field(
         9, ge=2, le=500,
@@ -43,86 +56,103 @@ class ReverseEMAConfig(StrategyConfig):
     )
 
 
-# ─── Strategy ──────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════
+# [C] STRATEGY CLASS
+# ════════════════════════════════════════════════════════════════════
+
 class ReverseEMACrossover(BaseStrategy):
-    """
-    Reverse EMA Crossover — counter-trend version of EMA Crossover.
 
-    Signal logic is inverted:
-      BUY  when fast EMA crosses BELOW slow EMA (normal SELL signal)
-      SELL when fast EMA crosses ABOVE slow EMA (normal BUY signal)
+    name         = STRATEGY_NAME
+    description  = STRATEGY_DESCRIPTION
+    version      = STRATEGY_VERSION
+    strategy_type = STRATEGY_TYPE
+    config_model = StrategySettings
 
-    All SL/TP modes and settings are identical to EMA Crossover.
-    """
 
-    name = "Reverse EMA Crossover"
-    description = (
-        "Counter-trend EMA strategy — opens BUY when fast crosses below slow "
-        "and SELL when fast crosses above slow. Inverted EMA Crossover logic. "
-        "No SL/TP — pure signal only."
-    )
-    config_model = ReverseEMAConfig
+    # ════════════════════════════════════════════════════════════════
+    # [D] ON_START — Pre-compute ALL indicators
+    # ════════════════════════════════════════════════════════════════
 
-    # ─── EMA Calculation ────────────────────────────────────────
-    def _compute_ema(self, series: pd.Series, period: int) -> np.ndarray:
-        values = series.values.astype(float)
-        ema = np.full(len(values), np.nan)
-        k = 2.0 / (period + 1)
-        if len(values) < period:
-            return ema
-        ema[period - 1] = np.mean(values[:period])
-        for i in range(period, len(values)):
-            ema[i] = values[i] * k + ema[i - 1] * (1 - k)
-        return ema
-
-    # ─── on_bar ─────────────────────────────────────────────────
-    def on_bar(self, index: int, data: pd.DataFrame):
+    def on_start(self, data: pd.DataFrame):
         cfg = self.config
-        min_bars = max(cfg.fast_period, cfg.slow_period) + 1
+        self._cache = {}
 
-        if len(data) < min_bars:
+        self._cache["ema_fast"] = self._ema(data[cfg.source], cfg.fast_period)
+        self._cache["ema_slow"] = self._ema(data[cfg.source], cfg.slow_period)
+
+        self._warmup = self._calculate_warmup(cfg)
+
+
+    # ════════════════════════════════════════════════════════════════
+    # [F] ON_BAR — Signal generation (REVERSED logic)
+    # ════════════════════════════════════════════════════════════════
+
+    def on_bar(self, index: int, data: pd.DataFrame):
+        cfg   = self.config
+        cache = self._cache
+
+        if index < self._warmup:
             return "HOLD"
 
-        prices = data[cfg.source]
-        fast_ema = self._compute_ema(prices, cfg.fast_period)
-        slow_ema = self._compute_ema(prices, cfg.slow_period)
-
-        curr_fast = fast_ema[index]
-        curr_slow = slow_ema[index]
-        prev_fast = fast_ema[index - 1]
-        prev_slow = slow_ema[index - 1]
-
-        if np.isnan(curr_fast) or np.isnan(curr_slow):
-            return "HOLD"
-        if np.isnan(prev_fast) or np.isnan(prev_slow):
+        ema_fast = cache.get("ema_fast")
+        ema_slow = cache.get("ema_slow")
+        if ema_fast is None or ema_slow is None:
             return "HOLD"
 
-        # ── REVERSED: cross_above triggers SELL, cross_below triggers BUY ──
-        cross_above = prev_fast <= prev_slow and curr_fast > curr_slow  # → SELL
-        cross_below = prev_fast >= prev_slow and curr_fast < curr_slow  # → BUY
+        curr_fast = ema_fast[index]
+        curr_slow = ema_slow[index]
+        prev_fast = ema_fast[index - 1]
+        prev_slow = ema_slow[index - 1]
 
-        # cross_below → BUY (reversed)
-        if cross_below and cfg.trade_direction in ("both", "long_only"):
+        if any(np.isnan(v) for v in [curr_fast, curr_slow, prev_fast, prev_slow]):
+            return "HOLD"
+
+        # REVERSED: cross_above → SELL, cross_below → BUY
+        cross_above = prev_fast <= prev_slow and curr_fast > curr_slow
+        cross_below = prev_fast >= prev_slow and curr_fast < curr_slow
+
+        buy_signal  = cross_below   # reversed
+        sell_signal = cross_above   # reversed
+
+        if cfg.trade_direction == "long_only":
+            sell_signal = False
+        elif cfg.trade_direction == "short_only":
+            buy_signal = False
+
+        if buy_signal:
             return "BUY"
-
-        # cross_above → SELL (reversed)
-        if cross_above and cfg.trade_direction in ("both", "short_only"):
+        if sell_signal:
             return "SELL"
 
         return "HOLD"
 
-    # ─── Indicator overlay ──────────────────────────────────────
-    def get_indicator_data(self, data: pd.DataFrame) -> dict:
-        """Return EMA values for price chart overlay."""
-        cfg = self.config
-        prices = data[cfg.source]
-        fast_ema = self._compute_ema(prices, cfg.fast_period)
-        slow_ema = self._compute_ema(prices, cfg.slow_period)
 
-        def to_list(arr):
-            return [None if np.isnan(v) else round(float(v), 6) for v in arr]
+    # ════════════════════════════════════════════════════════════════
+    # [G] VISUALIZATION
+    # ════════════════════════════════════════════════════════════════
 
-        return {
-            f"EMA {cfg.fast_period}": to_list(fast_ema),
-            f"EMA {cfg.slow_period}": to_list(slow_ema),
-        }
+    def get_indicator_data(self, data: pd.DataFrame) -> list:
+        cfg   = self.config
+        cache = self._cache
+        plots = []
+
+        if cache.get("ema_fast") is not None:
+            plots.append(IndicatorPlot(
+                id     = "ema_fast",
+                label  = f"EMA {cfg.fast_period}",
+                pane   = "price",
+                type   = "line",
+                color  = "#3b82f6",
+                values = self._to_chart_values(data, cache["ema_fast"]),
+            ))
+        if cache.get("ema_slow") is not None:
+            plots.append(IndicatorPlot(
+                id     = "ema_slow",
+                label  = f"EMA {cfg.slow_period}",
+                pane   = "price",
+                type   = "line",
+                color  = "#f59e0b",
+                values = self._to_chart_values(data, cache["ema_slow"]),
+            ))
+
+        return plots

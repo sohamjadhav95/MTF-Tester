@@ -249,29 +249,33 @@ class MTFLiveEngine:
             if is_closed:
                 strategy = self.strategies[tf]
                 try:
+                    # Re-compute indicators on updated data
+                    strategy.on_start(df)
                     current_idx = len(df) - 1
                     raw_signal = strategy.on_bar(current_idx, df)
-                    signal_dir = self._parse_signal(raw_signal)
+                    sig_data = self._parse_signal_full(raw_signal)
 
-                    if signal_dir in ("BUY", "SELL"):
+                    if sig_data["direction"] in ("BUY", "SELL"):
                         if self.last_signal_time[tf] != bar_time:
                             self.last_signal_time[tf] = bar_time
                             sig = {
                                 "symbol": self.symbol,
                                 "timeframe": tf,
                                 "strategy": self.strategy_name,
-                                "direction": signal_dir,
+                                "direction": sig_data["direction"],
                                 "price": bar["close"],
+                                "sl": sig_data.get("sl"),
+                                "tp": sig_data.get("tp"),
                                 "time": datetime.now(timezone.utc).isoformat(),
                                 "bar_time": bar_time_str,
                             }
-                            log.info(f"Signal | {signal_dir} {self.symbol} [{tf}] @ {bar['close']}")
+                            log.info(f"Signal | {sig_data['direction']} {self.symbol} [{tf}] @ {bar['close']}")
                 except Exception:
                     pass
 
     # ── Historical Context ──────────────────────────────────────
 
-    def get_historical_context(self) -> Tuple[Dict[str, List[Dict]], List[Dict], Dict[str, Dict[str, List[Dict]]]]:
+    def get_historical_context(self) -> Tuple[Dict[str, List[Dict]], List[Dict], Dict[str, List[Dict]]]:
         historical_candles = {}
         historical_signals = []
         historical_indicators = {}
@@ -308,25 +312,20 @@ class MTFLiveEngine:
             if candles:
                 log.info(f"HIST [{tf}] first={candles[0]['time']} last={candles[-1]['time']} type={type(df.iloc[0]['time'])} bars={len(candles)}")
 
-            # Indicator calculation
+            # ── Phase 2: Call on_start() to pre-compute indicators ──
             strategy = self.strategies[tf]
+            try:
+                strategy.on_start(df)
+            except Exception as e:
+                log.error(f"on_start() failed for {tf}: {e}")
+
+            # ── Phase 2: Handle IndicatorPlot list OR legacy dict ──
             try:
                 ind_raw = strategy.get_indicator_data(df)
             except (AttributeError, Exception):
                 ind_raw = {}
 
-            tf_indicators = {}
-            for name, points in ind_raw.items():
-                fmt_points = []
-                for idx, val in enumerate(points):
-                    if val is not None and not pd.isna(val):
-                        t = df.iloc[idx]["time"]
-                        fmt_points.append({
-                            "time": t.isoformat() if hasattr(t, "isoformat") else str(t),
-                            "value": val
-                        })
-                tf_indicators[name] = fmt_points
-            historical_indicators[tf] = tf_indicators
+            historical_indicators[tf] = self._serialize_indicators(ind_raw, df)
 
             if self.start_time_dt:
                 start_idx = 0
@@ -336,9 +335,9 @@ class MTFLiveEngine:
             for i in range(start_idx, len(df)):
                 try:
                     raw_signal = strategy.on_bar(i, df)
-                    signal_dir = self._parse_signal(raw_signal)
+                    sig_data = self._parse_signal_full(raw_signal)
 
-                    if signal_dir in ("BUY", "SELL"):
+                    if sig_data["direction"] in ("BUY", "SELL"):
                         bar_time = df.iloc[i]["time"]
                         if self.last_signal_time[tf] != bar_time:
                             self.last_signal_time[tf] = bar_time
@@ -346,8 +345,10 @@ class MTFLiveEngine:
                                 "symbol": self.symbol,
                                 "timeframe": tf,
                                 "strategy": self.strategy_name,
-                                "direction": signal_dir,
+                                "direction": sig_data["direction"],
                                 "price": float(df.iloc[i]["close"]),
+                                "sl": sig_data.get("sl"),
+                                "tp": sig_data.get("tp"),
                                 "time": bar_time.isoformat() if hasattr(bar_time, "isoformat") else str(bar_time),
                                 "bar_time": bar_time.isoformat() if hasattr(bar_time, "isoformat") else str(bar_time),
                             })
@@ -357,6 +358,65 @@ class MTFLiveEngine:
         historical_signals.sort(key=lambda x: x["time"], reverse=True)
 
         return historical_candles, historical_signals, historical_indicators
+
+    def _serialize_indicators(self, ind_raw, df: pd.DataFrame) -> list:
+        """
+        Serialize indicator data. Handles BOTH:
+        - Phase 2 IndicatorPlot list (new)
+        - Legacy dict format (backward compat)
+        """
+        if isinstance(ind_raw, list):
+            # Phase 2: list of IndicatorPlot dataclass objects
+            result = []
+            for plot in ind_raw:
+                entry = {
+                    "id":    getattr(plot, "id", ""),
+                    "label": getattr(plot, "label", ""),
+                    "pane":  getattr(plot, "pane", "price"),
+                    "type":  getattr(plot, "type", "line"),
+                    "color": getattr(plot, "color", "#3b82f6"),
+                    "values": getattr(plot, "values", []),
+                    "line_width": getattr(plot, "line_width", 1),
+                }
+                if getattr(plot, "band_upper", None):
+                    entry["band_upper"] = plot.band_upper
+                if getattr(plot, "band_lower", None):
+                    entry["band_lower"] = plot.band_lower
+                if getattr(plot, "zones", None):
+                    entry["zones"] = plot.zones
+                result.append(entry)
+            return result
+        elif isinstance(ind_raw, dict):
+            # Legacy: dict of {name: [values...]}
+            result = []
+            colors = ["#3b82f6", "#f59e0b", "#8b5cf6", "#06b6d4", "#ec4899", "#14b8a6"]
+            for ci, (name, points) in enumerate(ind_raw.items()):
+                if not points:
+                    continue
+                if isinstance(points, list) and len(points) > 0 and isinstance(points[0], dict):
+                    # Already formatted as [{time, value},...]
+                    values = points
+                else:
+                    # Legacy float array — format it
+                    values = []
+                    for idx, val in enumerate(points):
+                        if val is not None and not pd.isna(val):
+                            t = df.iloc[idx]["time"]
+                            values.append({
+                                "time": t.isoformat() if hasattr(t, "isoformat") else str(t),
+                                "value": val
+                            })
+                result.append({
+                    "id":    name.replace(" ", "_").lower(),
+                    "label": name,
+                    "pane":  "price",
+                    "type":  "line",
+                    "color": colors[ci % len(colors)],
+                    "values": values,
+                    "line_width": 1,
+                })
+            return result
+        return []
 
     # ── REST Polling (MT5) ──────────────────────────────────────
 
@@ -407,23 +467,31 @@ class MTFLiveEngine:
             log.info(f"LIVE [{tf}] time={bar_dict['time']} type={type(current_time)}")
             updates.append({"symbol": self.symbol, "timeframe": tf, "bar": bar_dict})
 
+            # Re-call on_start() so cache is recomputed on updated rolling data
             strategy = self.strategies[tf]
+            try:
+                strategy.on_start(df)
+            except Exception:
+                pass
+
             try:
                 raw_signal = strategy.on_bar(current_idx, df)
             except Exception:
                 continue
 
-            signal_dir = self._parse_signal(raw_signal)
+            sig_data = self._parse_signal_full(raw_signal)
 
-            if signal_dir in ("BUY", "SELL"):
+            if sig_data["direction"] in ("BUY", "SELL"):
                 if self.last_signal_time[tf] != current_time:
                     self.last_signal_time[tf] = current_time
                     signals.append({
                         "symbol": self.symbol,
                         "timeframe": tf,
                         "strategy": self.strategy_name,
-                        "direction": signal_dir,
+                        "direction": sig_data["direction"],
                         "price": float(df.iloc[current_idx]["close"]),
+                        "sl": sig_data.get("sl"),
+                        "tp": sig_data.get("tp"),
                         "time": datetime.now(timezone.utc).isoformat(),
                         "bar_time": current_time.isoformat() if hasattr(current_time, "isoformat") else str(current_time),
                     })
@@ -435,3 +503,20 @@ class MTFLiveEngine:
         if isinstance(raw, tuple):
             return str(raw[0]).upper() if raw else "HOLD"
         return str(raw).upper() if raw else "HOLD"
+
+    @staticmethod
+    def _parse_signal_full(raw) -> dict:
+        """
+        Parse signal return value. Handles:
+          "BUY" / "SELL" / "HOLD"
+          ("BUY", sl, tp)
+          ("SELL", sl, tp)
+        Returns dict with direction, sl, tp.
+        """
+        if isinstance(raw, tuple) and len(raw) >= 1:
+            direction = str(raw[0]).upper()
+            sl = raw[1] if len(raw) > 1 else None
+            tp = raw[2] if len(raw) > 2 else None
+            return {"direction": direction, "sl": sl, "tp": tp}
+        direction = str(raw).upper() if raw else "HOLD"
+        return {"direction": direction, "sl": None, "tp": None}

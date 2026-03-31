@@ -300,3 +300,162 @@
     100% { box-shadow: 0 0 0 0 transparent; border-color: var(--border-1); }
 }
 
+/* ═══ SCANNER CONTENT WRAPPER (Charts + Signal Panel) ═══════ */
+.scanner-content-wrapper {
+    display: flex;
+    gap: var(--sp-3);
+    min-height: 0;
+    flex: 1;
+}
+.scanner-charts-area {
+    flex: 1;
+    min-width: 0;
+    overflow: auto;
+}
+
+/* ═══ SIGNAL LIST PANEL (right sidebar in scanner) ══════════ */
+.scanner-signals-panel {
+    width: 280px;
+    min-width: 240px;
+    max-width: 320px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-1);
+    border-radius: var(--r-md);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+.signals-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--sp-3) var(--sp-4);
+    border-bottom: 1px solid var(--border-1);
+    background: rgba(255,255,255,0.02);
+}
+.signals-panel-title {
+    font-size: var(--fs-xs);
+    font-weight: 700;
+    color: var(--text-2);
+    letter-spacing: 0.02em;
+}
+.signals-panel-count {
+    font-size: var(--fs-2xs);
+    font-weight: 700;
+    font-family: var(--ff-mono);
+    background: var(--accent);
+    color: var(--bg-0);
+    padding: 1px 8px;
+    border-radius: 999px;
+    min-width: 20px;
+    text-align: center;
+}
+.signals-panel-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--sp-2);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+/* ── Individual Signal Entry ──────────────────────────────── */
+.signal-list-entry {
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border-1);
+    border-radius: var(--r-sm);
+    padding: 8px 10px;
+    transition: all var(--t-fast);
+    border-left: 3px solid transparent;
+}
+.signal-list-entry:hover {
+    background: rgba(255,255,255,0.04);
+    border-color: var(--border-2);
+}
+.signal-list-entry.sig-buy {
+    border-left-color: var(--long);
+}
+.signal-list-entry.sig-sell {
+    border-left-color: var(--short);
+}
+
+.signal-list-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--fs-2xs);
+}
+.signal-list-dir {
+    font-weight: 800;
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    letter-spacing: 0.04em;
+    min-width: 32px;
+    text-align: center;
+}
+.signal-list-dir.buy {
+    background: rgba(34, 197, 94, 0.15);
+    color: var(--long);
+}
+.signal-list-dir.sell {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--short);
+}
+.signal-list-tf {
+    font-family: var(--ff-mono);
+    font-weight: 600;
+    color: var(--accent);
+    font-size: 10px;
+    background: rgba(99, 102, 241, 0.1);
+    padding: 1px 5px;
+    border-radius: 3px;
+}
+.signal-list-price {
+    font-family: var(--ff-mono);
+    font-weight: 600;
+    color: var(--text-1);
+    font-size: 11px;
+    flex: 1;
+    text-align: right;
+}
+.signal-list-time {
+    color: var(--text-3);
+    font-size: 10px;
+    white-space: nowrap;
+}
+
+.signal-list-meta {
+    display: flex;
+    gap: 12px;
+    margin-top: 4px;
+    font-size: 10px;
+    font-family: var(--ff-mono);
+    color: var(--text-3);
+}
+.signal-list-sl {
+    color: var(--short);
+    opacity: 0.7;
+}
+.signal-list-tp {
+    color: var(--long);
+    opacity: 0.7;
+}
+
+/* ── Scrollbar for signal list ────────────────────────────── */
+.signals-panel-list::-webkit-scrollbar { width: 4px; }
+.signals-panel-list::-webkit-scrollbar-track { background: transparent; }
+.signals-panel-list::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 4px; }
+
+/* ── Responsive: stack on small screens ───────────────────── */
+@media (max-width: 900px) {
+    .scanner-content-wrapper {
+        flex-direction: column;
+    }
+    .scanner-signals-panel {
+        width: 100%;
+        max-width: none;
+        max-height: 250px;
+    }
+}

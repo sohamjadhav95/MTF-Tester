@@ -458,6 +458,7 @@ async function handleLaunchScanner() {
         for (const sig of signals) {
             _activeScanners[id].signals.push(sig);
             updateGlobalSignals(sig);
+            updateSignalList(id, sig);
             const sigEl = document.getElementById(`${id}-sig-${sig.timeframe}`);
             if (sigEl) {
                 const cls = sig.direction === 'BUY' ? 'long' : 'short';
@@ -547,22 +548,38 @@ function createDynamicPanel(id, name, config) {
         <div class="signal-strip" id="${id}-strip">
             <span style="color:var(--text-3);">Loading charts...</span>
         </div>
-        <div class="chart-grid ${colClass}" id="${id}-charts">
-            ${config.timeframes.map(tf => `
-                <div class="chart-cell" id="${id}-cell-${tf}">
-                    <div class="chart-cell-header">
-                        <span class="chart-cell-tf">${tf}</span>
-                        <div style="display:flex; align-items:center; gap: 6px;">
-                            <span class="chart-cell-price mono" id="${id}-price-${tf}">—</span>
-                            <button class="chart-expand-btn" onclick="openExpandedChart('${id}', '${tf}')" title="Expand Chart">&#x26F6;</button>
+        <div class="scanner-content-wrapper">
+            <div class="scanner-charts-area">
+                <div class="chart-grid ${colClass}" id="${id}-charts">
+                    ${config.timeframes.map(tf => `
+                        <div class="chart-cell" id="${id}-cell-${tf}">
+                            <div class="chart-cell-header">
+                                <span class="chart-cell-tf">${tf}</span>
+                                <div style="display:flex; align-items:center; gap: 6px;">
+                                    <span class="chart-cell-price mono" id="${id}-price-${tf}">—</span>
+                                    <button class="chart-expand-btn" onclick="openExpandedChart('${id}', '${tf}')" title="Expand Chart">&#x26F6;</button>
+                                </div>
+                            </div>
+                            <div class="chart-cell-body" id="${id}-canvas-${tf}">
+                                <div class="empty-state" style="padding: 40px;"><div class="spinner-lg"></div></div>
+                            </div>
+                            <div class="chart-cell-signal" id="${id}-sig-${tf}"></div>
                         </div>
-                    </div>
-                    <div class="chart-cell-body" id="${id}-canvas-${tf}">
-                        <div class="empty-state" style="padding: 40px;"><div class="spinner-lg"></div></div>
-                    </div>
-                    <div class="chart-cell-signal" id="${id}-sig-${tf}"></div>
+                    `).join('')}
                 </div>
-            `).join('')}
+            </div>
+            <div class="scanner-signals-panel" id="${id}-signals-panel">
+                <div class="signals-panel-header">
+                    <span class="signals-panel-title">📋 Signal Log</span>
+                    <span class="signals-panel-count" id="${id}-sig-count">0</span>
+                </div>
+                <div class="signals-panel-list" id="${id}-sig-list">
+                    <div class="empty-state" style="padding: 24px 12px;">
+                        <div style="font-size: 20px; opacity: 0.2;">📡</div>
+                        <div class="empty-state-desc">Signals will appear here</div>
+                    </div>
+                </div>
+            </div>
         </div>
     `;
 
@@ -687,6 +704,7 @@ function handleScannerMsg(id, msg) {
         for (const sig of signals) {
             scanner.signals.push(sig);
             updateGlobalSignals(sig);
+            updateSignalList(id, sig);
             const sigEl = document.getElementById(`${id}-sig-${sig.timeframe}`);
             if (sigEl) {
                 const cls = sig.direction === 'BUY' ? 'long' : 'short';
@@ -825,6 +843,9 @@ function handleScannerMsg(id, msg) {
         // Update global signals log
         updateGlobalSignals(sig);
 
+        // Update per-scanner signal list panel
+        updateSignalList(id, sig);
+
         showToast(`${sig.direction} · ${sig.symbol} [${sig.timeframe}] @ ${fmtPrice(sig.price)}`,
             sig.direction === 'BUY' ? 'success' : 'error', 5000);
     }
@@ -871,6 +892,8 @@ function updateGlobalSignals(sig) {
     if (empty) empty.remove();
 
     const cls = sig.direction === 'BUY' ? 'long' : 'short';
+    const slStr = sig.sl != null ? fmtPrice(sig.sl) : '—';
+    const tpStr = sig.tp != null ? fmtPrice(sig.tp) : '—';
     const el = document.createElement('div');
     el.className = 'sig-entry';
     el.innerHTML = `
@@ -886,6 +909,47 @@ function updateGlobalSignals(sig) {
     // Keep max 30 entries
     while (log.children.length > 30) log.removeChild(log.lastChild);
 }
+
+// ═══ SIGNAL LIST PANEL (Per-Scanner) ══════════════════════════
+function updateSignalList(id, sig) {
+    const list = document.getElementById(`${id}-sig-list`);
+    const countEl = document.getElementById(`${id}-sig-count`);
+    if (!list) return;
+
+    // Remove empty state
+    const empty = list.querySelector('.empty-state');
+    if (empty) empty.remove();
+
+    const cls = sig.direction === 'BUY' ? 'sig-buy' : 'sig-sell';
+    const slStr = sig.sl != null ? fmtPrice(sig.sl) : '—';
+    const tpStr = sig.tp != null ? fmtPrice(sig.tp) : '—';
+
+    const entry = document.createElement('div');
+    entry.className = `signal-list-entry ${cls}`;
+    entry.innerHTML = `
+        <div class="signal-list-row">
+            <span class="signal-list-dir ${sig.direction.toLowerCase()}">${sig.direction}</span>
+            <span class="signal-list-tf">${sig.timeframe}</span>
+            <span class="signal-list-price">${fmtPrice(sig.price)}</span>
+            <span class="signal-list-time">${fmtTime(sig.bar_time || sig.time)}</span>
+        </div>
+        <div class="signal-list-meta">
+            <span class="signal-list-sl">SL: ${slStr}</span>
+            <span class="signal-list-tp">TP: ${tpStr}</span>
+        </div>
+    `;
+    list.insertBefore(entry, list.firstChild);
+
+    // Keep max 50 entries
+    while (list.children.length > 50) list.removeChild(list.lastChild);
+
+    // Update count
+    if (countEl) {
+        const scanner = _activeScanners[id];
+        countEl.textContent = scanner ? scanner.signals.length : list.children.length;
+    }
+}
+
 
 // ═══ LIGHTWEIGHT CHARTS — TIMESTAMP UTILITY ═══════════════════
 function _toChartTs(isoStr) {
@@ -971,17 +1035,50 @@ function initLWChart(scannerId, tf, bars, indicatorData) {
         console.error('Error setting candle data:', e);
     }
 
-    // Add indicator line series
+    // ── Phase 2: Handle IndicatorPlot list format ──────────────
     const indicatorSeriesMap = {};
-    if (indicatorData && Object.keys(indicatorData).length > 0) {
-        const lineColors = ['#3b82f6', '#f59e0b', '#8b5cf6', '#06b6d4', '#ec4899', '#14b8a6'];
-        let colorIdx = 0;
+    const fallbackColors = ['#3b82f6', '#f59e0b', '#8b5cf6', '#06b6d4', '#ec4899', '#14b8a6'];
 
+    if (indicatorData && Array.isArray(indicatorData) && indicatorData.length > 0) {
+        // Phase 2: Array of IndicatorPlot objects [{id, label, pane, type, color, values},...]
+        for (let ci = 0; ci < indicatorData.length; ci++) {
+            const plot = indicatorData[ci];
+            if (!plot.values || plot.values.length === 0) continue;
+
+            const plotColor = plot.color || fallbackColors[ci % fallbackColors.length];
+            const lineWidth = plot.line_width || 1;
+
+            const line = chart.addLineSeries({
+                color: plotColor,
+                lineWidth: lineWidth,
+                title: plot.label || plot.id || `Indicator ${ci}`,
+            });
+
+            const sortedPts = [...plot.values]
+                .map(p => ({ time: _toChartTs(p.time), value: p.value }))
+                .sort((a, b) => a.time - b.time);
+
+            // Deduplicate
+            const uniquePts = [];
+            const ptSeen = new Set();
+            for (const pt of sortedPts) {
+                if (!ptSeen.has(pt.time)) {
+                    ptSeen.add(pt.time);
+                    uniquePts.push(pt);
+                }
+            }
+
+            try { line.setData(uniquePts); } catch(e) {}
+            indicatorSeriesMap[plot.id || plot.label || `ind_${ci}`] = line;
+        }
+    } else if (indicatorData && typeof indicatorData === 'object' && !Array.isArray(indicatorData)) {
+        // Legacy: dict of {name: [{time, value},...], ...}
+        let colorIdx = 0;
         for (const [indName, dataPoints] of Object.entries(indicatorData)) {
             if (!dataPoints || dataPoints.length === 0) continue;
 
             const line = chart.addLineSeries({
-                color: lineColors[colorIdx % lineColors.length],
+                color: fallbackColors[colorIdx % fallbackColors.length],
                 lineWidth: 1,
                 title: indName,
             });
@@ -990,7 +1087,6 @@ function initLWChart(scannerId, tf, bars, indicatorData) {
                 .map(p => ({ time: _toChartTs(p.time), value: p.value }))
                 .sort((a, b) => a.time - b.time);
 
-            // Deduplicate
             const uniquePts = [];
             const ptSeen = new Set();
             for (const pt of sortedPts) {

@@ -1,10 +1,12 @@
 """
-EMA Crossover Strategy
-======================
-Enhanced with three SL/TP modes:
-  - fixed_rr    : SL at fixed pips; TP = SL distance × R/R ratio
-  - candle_low  : SL at the entry bar's low (BUY) or high (SELL); TP = SL × R/R
-  - atr         : SL = entry ± ATR × multiplier; TP = SL × R/R
+EMA Crossover Strategy — Dead Template Implementation
+======================================================
+Strategy type: indicator
+Signal: BUY when fast EMA crosses above slow EMA
+        SELL when fast EMA crosses below slow EMA
+
+Layer 1 (Signal):  on_start() pre-computes EMAs → on_bar() reads cache
+Layer 2 (Visual):  get_indicator_data() returns IndicatorPlot list
 """
 
 from __future__ import annotations
@@ -15,14 +17,26 @@ import numpy as np
 import pandas as pd
 from pydantic import Field
 
-from ._template import BaseStrategy, StrategyConfig
+from strategies._template import BaseStrategy, StrategyConfig, IndicatorPlot
 
 
-# ─── Pydantic Config (Single Source of Truth) ───────────────────
-class EMAConfig(StrategyConfig):
-    """Typed, validated configuration for the EMA Crossover strategy."""
+# ════════════════════════════════════════════════════════════════════
+# [A] STRATEGY METADATA
+# ════════════════════════════════════════════════════════════════════
 
-    # EMA Settings
+STRATEGY_NAME        = "EMA Crossover"
+STRATEGY_DESCRIPTION = "Generates signals based on the crossover of two Exponential Moving Averages (fast & slow)."
+STRATEGY_VERSION     = "2.0"
+STRATEGY_TYPE        = "indicator"
+
+
+# ════════════════════════════════════════════════════════════════════
+# [B] SETTINGS SCHEMA
+# ════════════════════════════════════════════════════════════════════
+
+class StrategySettings(StrategyConfig):
+    """EMA Crossover configuration."""
+
     fast_period: int = Field(
         10, ge=2, le=500,
         description="Fast EMA Period",
@@ -43,96 +57,105 @@ class EMAConfig(StrategyConfig):
     )
 
 
-# ─── Strategy ──────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════
+# [C] STRATEGY CLASS
+# ════════════════════════════════════════════════════════════════════
+
 class EMACrossover(BaseStrategy):
-    """
-    EMA Crossover Strategy.
 
-    Generates BUY signals when the fast EMA crosses above the slow EMA,
-    and SELL signals when the fast EMA crosses below the slow EMA.
-
-    SL/TP Modes:
-      - fixed_rr   : SL at a fixed pip distance; TP calculated using Risk/Reward ratio
-      - candle_low : SL placed at the low (BUY) or high (SELL) of the entry candle
-      - atr        : SL placed at entry ± (ATR × multiplier); TP from R/R ratio
-    """
-
-    name = "EMA Crossover"
-    description = (
-        "Generates signals based on the crossover of two Exponential "
-        "Moving Averages (fast & slow). No SL/TP — pure signal only."
-    )
-    config_model = EMAConfig
-
-    # ─── EMA Calculation ────────────────────────────────────────
-    def _compute_ema(self, series: pd.Series, period: int) -> np.ndarray:
-        """
-        Standard EMA: EMA[i] = price * k + EMA[i-1] * (1 - k), k = 2/(p+1)
-        First EMA value = SMA of first 'period' bars. Matches MT5 / TradingView.
-        """
-        values = series.values.astype(float)
-        ema = np.full(len(values), np.nan)
-        k = 2.0 / (period + 1)
-
-        if len(values) < period:
-            return ema
-
-        ema[period - 1] = np.mean(values[:period])
-        for i in range(period, len(values)):
-            ema[i] = values[i] * k + ema[i - 1] * (1 - k)
-
-        return ema
+    name         = STRATEGY_NAME
+    description  = STRATEGY_DESCRIPTION
+    version      = STRATEGY_VERSION
+    strategy_type = STRATEGY_TYPE
+    config_model = StrategySettings
 
 
-    # ─── on_bar ─────────────────────────────────────────────────
-    def on_bar(self, index: int, data: pd.DataFrame):
-        """
-        Generate signal based on EMA crossover.
-        Returns either 'HOLD', 'BUY', or 'SELL'.
-        """
+    # ════════════════════════════════════════════════════════════════
+    # [D] ON_START — Pre-compute ALL indicators
+    # ════════════════════════════════════════════════════════════════
+
+    def on_start(self, data: pd.DataFrame):
         cfg = self.config
-        min_bars = max(cfg.fast_period, cfg.slow_period) + 1
+        self._cache = {}
 
-        if len(data) < min_bars:
+        # Compute EMAs once on the full dataset
+        self._cache["ema_fast"] = self._ema(data[cfg.source], cfg.fast_period)
+        self._cache["ema_slow"] = self._ema(data[cfg.source], cfg.slow_period)
+
+        # Auto-calculate warmup
+        self._warmup = self._calculate_warmup(cfg)
+
+
+    # ════════════════════════════════════════════════════════════════
+    # [F] ON_BAR — Signal generation (reads from cache only)
+    # ════════════════════════════════════════════════════════════════
+
+    def on_bar(self, index: int, data: pd.DataFrame):
+        cfg   = self.config
+        cache = self._cache
+
+        # 1. Warmup guard
+        if index < self._warmup:
             return "HOLD"
 
-        prices = data[cfg.source]
-        fast_ema = self._compute_ema(prices, cfg.fast_period)
-        slow_ema = self._compute_ema(prices, cfg.slow_period)
-
-        curr_fast = fast_ema[index]
-        curr_slow = slow_ema[index]
-        prev_fast = fast_ema[index - 1]
-        prev_slow = slow_ema[index - 1]
-
-        if np.isnan(curr_fast) or np.isnan(curr_slow):
-            return "HOLD"
-        if np.isnan(prev_fast) or np.isnan(prev_slow):
+        # 2. NaN guard
+        ema_fast = cache.get("ema_fast")
+        ema_slow = cache.get("ema_slow")
+        if ema_fast is None or ema_slow is None:
             return "HOLD"
 
-        cross_above = prev_fast <= prev_slow and curr_fast > curr_slow
-        cross_below = prev_fast >= prev_slow and curr_fast < curr_slow
+        curr_fast = ema_fast[index]
+        curr_slow = ema_slow[index]
+        prev_fast = ema_fast[index - 1]
+        prev_slow = ema_slow[index - 1]
 
-        if cross_above and cfg.trade_direction in ("both", "long_only"):
+        if any(np.isnan(v) for v in [curr_fast, curr_slow, prev_fast, prev_slow]):
+            return "HOLD"
+
+        # 3. Entry conditions
+        buy_signal  = prev_fast <= prev_slow and curr_fast > curr_slow
+        sell_signal = prev_fast >= prev_slow and curr_fast < curr_slow
+
+        # Direction filter
+        if cfg.trade_direction == "long_only":
+            sell_signal = False
+        elif cfg.trade_direction == "short_only":
+            buy_signal = False
+
+        if buy_signal:
             return "BUY"
-
-        if cross_below and cfg.trade_direction in ("both", "short_only"):
+        if sell_signal:
             return "SELL"
 
         return "HOLD"
 
-    # ─── Indicator overlay ──────────────────────────────────────
-    def get_indicator_data(self, data: pd.DataFrame) -> dict:
-        """Return EMA values for price chart overlay."""
-        cfg = self.config
-        prices = data[cfg.source]
-        fast_ema = self._compute_ema(prices, cfg.fast_period)
-        slow_ema = self._compute_ema(prices, cfg.slow_period)
 
-        def to_list(arr):
-            return [None if np.isnan(v) else round(float(v), 6) for v in arr]
+    # ════════════════════════════════════════════════════════════════
+    # [G] VISUALIZATION — IndicatorPlot list for chart rendering
+    # ════════════════════════════════════════════════════════════════
 
-        return {
-            f"EMA {cfg.fast_period}": to_list(fast_ema),
-            f"EMA {cfg.slow_period}": to_list(slow_ema),
-        }
+    def get_indicator_data(self, data: pd.DataFrame) -> list:
+        cfg   = self.config
+        cache = self._cache
+        plots = []
+
+        if cache.get("ema_fast") is not None:
+            plots.append(IndicatorPlot(
+                id     = "ema_fast",
+                label  = f"EMA {cfg.fast_period}",
+                pane   = "price",
+                type   = "line",
+                color  = "#3b82f6",
+                values = self._to_chart_values(data, cache["ema_fast"]),
+            ))
+        if cache.get("ema_slow") is not None:
+            plots.append(IndicatorPlot(
+                id     = "ema_slow",
+                label  = f"EMA {cfg.slow_period}",
+                pane   = "price",
+                type   = "line",
+                color  = "#f59e0b",
+                values = self._to_chart_values(data, cache["ema_slow"]),
+            ))
+
+        return plots

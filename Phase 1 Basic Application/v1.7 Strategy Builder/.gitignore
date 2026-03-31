@@ -1,0 +1,36 @@
+# Dependencies
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Environment
+.env
+*.env.local
+
+# Database
+database/*.db
+database/*.db-wal
+database/*.db-shm
+
+# Logs
+logs/*.log
+logs/*.log.*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Python
+*.egg-info/
+dist/
+build/
+venv/
+.venv/

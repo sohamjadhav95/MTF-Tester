@@ -1,21 +1,14 @@
 """
-Supertrend Strategy — exact port of the classic TradingView Pine Script v4 logic.
+Supertrend Strategy — Dead Template Implementation
+====================================================
+Strategy type: indicator
+Exact port of TradingView Pine Script v4 Supertrend logic.
 
-Pine Script reference:
-  up  = hl2 - (Multiplier * atr)
-  up  = close[1] > up[1] ? max(up, up[1]) : up       # ratchet up
-  dn  = hl2 + (Multiplier * atr)
-  dn  = close[1] < dn[1] ? min(dn, dn[1]) : dn       # ratchet down
-  trend flips: -1→1 when close > dn[1], 1→-1 when close < up[1]
+Signal: BUY  when trend flips from -1 to 1  (bearish → bullish)
+        SELL when trend flips from  1 to -1 (bullish → bearish)
 
-Signal:
-  BUY  when trend flips from -1 to 1  (at the close of that bar)
-  SELL when trend flips from  1 to -1 (at the close of that bar)
-
-SL Types (all TP = SL distance × R/R):
-  fixed_rr   — SL at entry ± fixed pips
-  candle_low — SL at signal candle low (BUY) / high (SELL) ±1 pip
-  atr        — SL at entry ± ATR × multiplier
+Layer 1 (Signal):  on_start() pre-computes supertrend → on_bar() reads cache
+Layer 2 (Visual):  get_indicator_data() returns IndicatorPlot list
 """
 
 from __future__ import annotations
@@ -26,12 +19,25 @@ import numpy as np
 import pandas as pd
 from pydantic import Field
 
-from ._template import BaseStrategy, StrategyConfig
+from strategies._template import BaseStrategy, StrategyConfig, IndicatorPlot
 
 
-# ─── Pydantic Config (Single Source of Truth) ───────────────────
-class SupertrendConfig(StrategyConfig):
-    """Typed, validated configuration for the Supertrend strategy."""
+# ════════════════════════════════════════════════════════════════════
+# [A] STRATEGY METADATA
+# ════════════════════════════════════════════════════════════════════
+
+STRATEGY_NAME        = "Supertrend"
+STRATEGY_DESCRIPTION = "Classic Supertrend indicator (TV Pine Script logic). BUY when flips green, SELL when flips red."
+STRATEGY_VERSION     = "2.0"
+STRATEGY_TYPE        = "indicator"
+
+
+# ════════════════════════════════════════════════════════════════════
+# [B] SETTINGS SCHEMA
+# ════════════════════════════════════════════════════════════════════
+
+class StrategySettings(StrategyConfig):
+    """Supertrend configuration."""
 
     atr_period: int = Field(
         10, ge=2, le=200,
@@ -49,150 +55,178 @@ class SupertrendConfig(StrategyConfig):
     )
 
 
-# ─── Strategy ──────────────────────────────────────────────────
-class Supertrend(BaseStrategy):
-    """
-    Classic Supertrend indicator (TV Pine Script logic).
-    BUY when Supertrend flips to green, SELL when it flips to red.
-    Three SL modes: fixed R/R, entry-candle low/high, or ATR-based.
-    """
+# ════════════════════════════════════════════════════════════════════
+# [C] STRATEGY CLASS
+# ════════════════════════════════════════════════════════════════════
 
-    name = "Supertrend"
-    description = (
-        "Classic Supertrend indicator (TV Pine Script logic). "
-        "BUY when Supertrend flips to green, SELL when it flips to red. "
-        "No SL/TP — pure signal only."
-    )
-    config_model = SupertrendConfig
+class SupertrendStrategy(BaseStrategy):
 
-    # ─── ATR (Wilder's, same as Pine atr()) ─────────────────────
-    def _compute_atr(
-        self,
-        high: np.ndarray,
-        low: np.ndarray,
-        close: np.ndarray,
-        period: int,
-    ) -> np.ndarray:
-        n = len(close)
-        tr = np.empty(n)
-        tr[0] = high[0] - low[0]
-        for i in range(1, n):
-            tr[i] = max(
-                high[i] - low[i],
-                abs(high[i] - close[i - 1]),
-                abs(low[i] - close[i - 1]),
-            )
+    name         = STRATEGY_NAME
+    description  = STRATEGY_DESCRIPTION
+    version      = STRATEGY_VERSION
+    strategy_type = STRATEGY_TYPE
+    config_model = StrategySettings
 
-        atr = np.full(n, np.nan)
-        if n >= period:
-            atr[period - 1] = np.mean(tr[:period])
-            for i in range(period, n):
-                atr[i] = (atr[i - 1] * (period - 1) + tr[i]) / period
-        return atr
 
-    # ─── Supertrend — exact Pine Script port ────────────────────
-    def _compute_supertrend(
-        self,
-        data: pd.DataFrame,
-        period: int,
-        multiplier: float,
-    ):
-        """
-        Returns (up_arr, dn_arr, trend_arr) all same length as data.
+    # ════════════════════════════════════════════════════════════════
+    # [D] ON_START — Pre-compute supertrend on full dataset
+    # ════════════════════════════════════════════════════════════════
 
-        up_arr  : lower support band (shown when trend == 1, green)
-        dn_arr  : upper resistance band (shown when trend == -1, red)
-        trend_arr: +1 = uptrend, -1 = downtrend
-        """
-        high = data["high"].values.astype(float)
-        low = data["low"].values.astype(float)
+    def on_start(self, data: pd.DataFrame):
+        cfg = self.config
+        self._cache = {}
+
+        # Compute supertrend using the built-in helper
+        st_line, st_dir = self._supertrend(data, cfg.atr_period, cfg.multiplier)
+        self._cache["st_line"]     = st_line
+        self._cache["st_direction"] = st_dir
+
+        # Also compute the raw up/down bands for visualization
+        up, dn, trend = self._compute_supertrend_detail(data, cfg.atr_period, cfg.multiplier)
+        self._cache["st_up"]    = up
+        self._cache["st_dn"]    = dn
+        self._cache["st_trend"] = trend
+
+        self._warmup = cfg.atr_period + 1
+
+
+    def _compute_supertrend_detail(self, data: pd.DataFrame, period: int, multiplier: float):
+        """Full Pine Script port returning up/dn/trend arrays for visualization."""
+        high  = data["high"].values.astype(float)
+        low   = data["low"].values.astype(float)
         close = data["close"].values.astype(float)
         n = len(close)
 
         hl2 = (high + low) / 2.0
-        atr = self._compute_atr(high, low, close, period)
 
-        up = np.full(n, np.nan)
-        dn = np.full(n, np.nan)
+        # ATR (Wilder's)
+        tr = np.empty(n)
+        tr[0] = high[0] - low[0]
+        for i in range(1, n):
+            tr[i] = max(high[i] - low[i], abs(high[i] - close[i-1]), abs(low[i] - close[i-1]))
+        atr = np.full(n, np.nan)
+        if n >= period:
+            atr[period - 1] = np.mean(tr[:period])
+            for i in range(period, n):
+                atr[i] = (atr[i-1] * (period - 1) + tr[i]) / period
+
+        up    = np.full(n, np.nan)
+        dn    = np.full(n, np.nan)
         trend = np.zeros(n, dtype=int)
 
         for i in range(n):
             if np.isnan(atr[i]):
                 up[i] = hl2[i] - multiplier * (high[i] - low[i])
                 dn[i] = hl2[i] + multiplier * (high[i] - low[i])
-                trend[i] = 1 if i == 0 else trend[i - 1]
+                trend[i] = 1 if i == 0 else trend[i-1]
                 continue
 
             basic_up = hl2[i] - multiplier * atr[i]
             basic_dn = hl2[i] + multiplier * atr[i]
 
             if i == 0:
-                up[i] = basic_up
-                dn[i] = basic_dn
-                trend[i] = 1
+                up[i], dn[i], trend[i] = basic_up, basic_dn, 1
             else:
-                prev_up = up[i - 1]
-                prev_dn = dn[i - 1]
-                prev_close = close[i - 1]
-                prev_trend = trend[i - 1]
+                up[i] = max(basic_up, up[i-1]) if close[i-1] > up[i-1] else basic_up
+                dn[i] = min(basic_dn, dn[i-1]) if close[i-1] < dn[i-1] else basic_dn
 
-                up[i] = max(basic_up, prev_up) if prev_close > prev_up else basic_up
-                dn[i] = min(basic_dn, prev_dn) if prev_close < prev_dn else basic_dn
-
-                if prev_trend == -1 and close[i] > prev_dn:
+                if trend[i-1] == -1 and close[i] > dn[i-1]:
                     trend[i] = 1
-                elif prev_trend == 1 and close[i] < prev_up:
+                elif trend[i-1] == 1 and close[i] < up[i-1]:
                     trend[i] = -1
                 else:
-                    trend[i] = prev_trend
+                    trend[i] = trend[i-1]
 
         return up, dn, trend
 
-    # ─── on_bar ─────────────────────────────────────────────────
-    def on_bar(self, index: int, data: pd.DataFrame):
-        cfg = self.config
 
-        if index < 1 or len(data) < cfg.atr_period + 1:
+    # ════════════════════════════════════════════════════════════════
+    # [F] ON_BAR — Signal generation (reads from cache only)
+    # ════════════════════════════════════════════════════════════════
+
+    def on_bar(self, index: int, data: pd.DataFrame):
+        cfg   = self.config
+        cache = self._cache
+
+        if index < self._warmup:
             return "HOLD"
 
-        _, dn, trend = self._compute_supertrend(data, cfg.atr_period, cfg.multiplier)
+        trend = cache.get("st_trend")
+        if trend is None:
+            return "HOLD"
 
         curr_trend = trend[index]
         prev_trend = trend[index - 1]
 
-        buy_signal = curr_trend == 1 and prev_trend == -1
+        buy_signal  = curr_trend == 1  and prev_trend == -1
         sell_signal = curr_trend == -1 and prev_trend == 1
 
-        if not buy_signal and not sell_signal:
-            return "HOLD"
+        if cfg.trade_direction == "long_only":
+            sell_signal = False
+        elif cfg.trade_direction == "short_only":
+            buy_signal = False
 
-        if buy_signal and cfg.trade_direction in ("both", "long_only"):
+        if buy_signal:
             return "BUY"
-
-        if sell_signal and cfg.trade_direction in ("both", "short_only"):
+        if sell_signal:
             return "SELL"
 
         return "HOLD"
 
-    # ─── Indicator Overlay ──────────────────────────────────────
-    def get_indicator_data(self, data: pd.DataFrame) -> dict:
-        cfg = self.config
 
-        if len(data) < cfg.atr_period + 1:
-            return {}
+    # ════════════════════════════════════════════════════════════════
+    # [G] VISUALIZATION
+    # ════════════════════════════════════════════════════════════════
 
-        up, dn, trend = self._compute_supertrend(data, cfg.atr_period, cfg.multiplier)
+    def get_indicator_data(self, data: pd.DataFrame) -> list:
+        cfg   = self.config
+        cache = self._cache
+        plots = []
 
-        bull = [
-            None if trend[i] != 1 else (None if np.isnan(up[i]) else round(float(up[i]), 6))
-            for i in range(len(trend))
-        ]
-        bear = [
-            None if trend[i] != -1 else (None if np.isnan(dn[i]) else round(float(dn[i]), 6))
-            for i in range(len(trend))
-        ]
+        up    = cache.get("st_up")
+        dn    = cache.get("st_dn")
+        trend = cache.get("st_trend")
 
-        return {
-            f"ST↑ ({cfg.atr_period},{cfg.multiplier})": bull,
-            f"ST↓ ({cfg.atr_period},{cfg.multiplier})": bear,
-        }
+        if up is not None and trend is not None:
+            # Bullish line (green) — shown when trend == 1
+            bull_values = []
+            for i in range(len(trend)):
+                if trend[i] == 1 and not np.isnan(up[i]):
+                    t = data.iloc[i]["time"]
+                    bull_values.append({
+                        "time": t.isoformat() if hasattr(t, "isoformat") else str(t),
+                        "value": round(float(up[i]), 6),
+                    })
+            if bull_values:
+                plots.append(IndicatorPlot(
+                    id    = "st_bull",
+                    label = f"ST↑ ({cfg.atr_period},{cfg.multiplier})",
+                    pane  = "price",
+                    type  = "line",
+                    color = "#22c55e",
+                    values = bull_values,
+                    line_width = 2,
+                ))
+
+        if dn is not None and trend is not None:
+            # Bearish line (red) — shown when trend == -1
+            bear_values = []
+            for i in range(len(trend)):
+                if trend[i] == -1 and not np.isnan(dn[i]):
+                    t = data.iloc[i]["time"]
+                    bear_values.append({
+                        "time": t.isoformat() if hasattr(t, "isoformat") else str(t),
+                        "value": round(float(dn[i]), 6),
+                    })
+            if bear_values:
+                plots.append(IndicatorPlot(
+                    id    = "st_bear",
+                    label = f"ST↓ ({cfg.atr_period},{cfg.multiplier})",
+                    pane  = "price",
+                    type  = "line",
+                    color = "#ef4444",
+                    values = bear_values,
+                    line_width = 2,
+                ))
+
+        return plots
