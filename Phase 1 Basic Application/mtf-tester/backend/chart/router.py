@@ -15,8 +15,10 @@ All routes require auth.
 
 import asyncio
 import json
+import types
+import importlib.util
 from datetime import datetime
-from fastapi import APIRouter, Request, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Request, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File
 from main.models import BacktestRequest, MTFStartRequest
 from main.logger import get_logger
 from chart.registry import auto_discover_strategies
@@ -277,3 +279,117 @@ async def scanner_ws(websocket: WebSocket, scanner_id: str):
             global _scanner_counter
             if not _active_scanners:
                 _scanner_counter = 0
+
+
+# ═══ STRATEGY UPLOAD / DELETE ══════════════════════════════════
+
+# Built-in strategies that cannot be deleted
+_PROTECTED_STRATEGIES = {
+    "ema_crossover.py", "supertrend.py",
+    "reverse_ema_crossover.py", "_template.py", "_zone_helpers.py",
+}
+
+# Patterns blocked for security
+_BLOCKED_PATTERNS = [
+    "os.system", "subprocess", "eval(", "exec(",
+    "__import__", "open(", "socket", "requests", "urllib",
+]
+
+
+@router.post("/strategies/upload")
+async def upload_strategy(file: UploadFile = File(...)):
+    """
+    Upload a .py strategy file. Validates:
+    - UTF-8 encoded Python
+    - Clean syntax
+    - No dangerous imports
+    - Contains a BaseStrategy subclass with a non-empty 'name'
+    Saves to strategies/ and invalidates the registry cache.
+    """
+    from main.config import STRATEGIES_DIR
+    from strategies._template import BaseStrategy
+    from chart.registry import _registry
+
+    if not file.filename.endswith(".py"):
+        raise HTTPException(status_code=400, detail="Only .py files are accepted")
+
+    content = await file.read()
+    try:
+        source = content.decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="File must be UTF-8 encoded")
+
+    # Syntax check
+    try:
+        compile(source, file.filename, "exec")
+    except SyntaxError as e:
+        raise HTTPException(status_code=400, detail=f"Syntax error in strategy: {e}")
+
+    # Security check
+    for blocked in _BLOCKED_PATTERNS:
+        if blocked in source:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Strategy contains blocked pattern: '{blocked}'"
+            )
+
+    # Load module in isolated namespace and find BaseStrategy subclass
+    module = types.ModuleType(file.filename[:-3])
+    try:
+        exec(compile(source, file.filename, "exec"), module.__dict__)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to execute module: {e}")
+
+    strategy_name = None
+    for attr_name in dir(module):
+        obj = getattr(module, attr_name)
+        if (
+            isinstance(obj, type)
+            and issubclass(obj, BaseStrategy)
+            and obj is not BaseStrategy
+            and getattr(obj, "name", "")
+        ):
+            strategy_name = obj.name
+            break
+
+    if not strategy_name:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No valid BaseStrategy subclass found. "
+                "Class must inherit from BaseStrategy and have a non-empty 'name' attribute."
+            )
+        )
+
+    # Sanitize filename and save
+    safe_name = "".join(c for c in file.filename if c.isalnum() or c in "._-")
+    if not safe_name.endswith(".py"):
+        safe_name += ".py"
+    dest = STRATEGIES_DIR / safe_name
+    dest.write_bytes(content)
+
+    # Invalidate registry so next request picks up the new file
+    _registry.clear()
+
+    log.info(f"Strategy uploaded | name={strategy_name} | file={safe_name}")
+    return {"success": True, "strategy_name": strategy_name, "filename": safe_name}
+
+
+@router.delete("/strategies/{filename}")
+async def delete_strategy(filename: str):
+    """Delete a user-uploaded strategy. Built-in strategies are protected."""
+    from main.config import STRATEGIES_DIR
+    from chart.registry import _registry
+
+    if filename in _PROTECTED_STRATEGIES:
+        raise HTTPException(status_code=403, detail="Cannot delete built-in strategies")
+
+    path = STRATEGIES_DIR / filename
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Strategy file not found")
+
+    path.unlink()
+    _registry.clear()
+
+    log.info(f"Strategy deleted | file={filename}")
+    return {"success": True}

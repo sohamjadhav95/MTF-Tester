@@ -1405,7 +1405,119 @@ function initDeployTrades() {
 
     // ── Auto Trade: populate scanner list ─────────────────────
     refreshAutoTradeList();
+
+    // ── Strategy Upload Panel ─────────────────────────────────
+    initStrategyUpload();
 }
+
+// ═══ STRATEGY UPLOAD / MANAGER ════════════════════════════════════
+
+function initStrategyUpload() {
+    // Tab switching
+    document.querySelectorAll('[data-strat-tab]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('[data-strat-tab]').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            const isUpload = btn.dataset.stratTab === 'upload';
+            const uploadTab = document.getElementById('strat-tab-upload');
+            const buildTab  = document.getElementById('strat-tab-build');
+            if (uploadTab) uploadTab.style.display = isUpload ? 'block' : 'none';
+            if (buildTab)  buildTab.style.display  = isUpload ? 'none'  : 'block';
+        });
+    });
+
+    const fileInput = document.getElementById('strat-file-input');
+    const dropZone  = document.getElementById('strat-drop-zone');
+
+    if (fileInput) {
+        fileInput.addEventListener('change', e => {
+            const file = e.target.files[0];
+            if (file) uploadStrategyFile(file);
+            e.target.value = '';  // reset so same file can re-trigger
+        });
+    }
+
+    if (dropZone) {
+        dropZone.addEventListener('dragover', e => {
+            e.preventDefault();
+            dropZone.classList.add('drag-over');
+        });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+        dropZone.addEventListener('drop', e => {
+            e.preventDefault();
+            dropZone.classList.remove('drag-over');
+            const file = e.dataTransfer.files[0];
+            if (file && file.name.endsWith('.py')) uploadStrategyFile(file);
+            else showToast('Only .py files are accepted', 'warning');
+        });
+    }
+
+    refreshUploadedStrategies();
+}
+
+async function uploadStrategyFile(file) {
+    const statusDiv = document.getElementById('strat-upload-status');
+    if (!statusDiv) return;
+    statusDiv.style.display = 'block';
+    statusDiv.innerHTML = `<div class="badge badge-muted">⏳ Validating ${file.name}...</div>`;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+        const token = Auth.getToken();
+        const res = await fetch('/api/chart/strategies/upload', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` },
+            body: formData,
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Upload failed');
+
+        statusDiv.innerHTML = `<div class="badge badge-success">✓ Loaded: "${data.strategy_name}"</div>`;
+        showToast(`Strategy "${data.strategy_name}" loaded`, 'success');
+        loadStrategies();             // refresh strategy dropdown
+        refreshUploadedStrategies();
+    } catch (err) {
+        statusDiv.innerHTML = `<div class="badge badge-error">✗ ${err.message}</div>`;
+        showToast(`Upload failed: ${err.message}`, 'error');
+    }
+}
+
+async function refreshUploadedStrategies() {
+    const container = document.getElementById('strat-uploaded-list');
+    if (!container) return;
+
+    const BUILTIN = new Set(['EMA Crossover', 'Reverse EMA Crossover', 'Supertrend']);
+    try {
+        const data = await api('/api/chart/strategies');
+        const custom = (data.strategies || []).filter(s => !BUILTIN.has(s.name));
+
+        if (custom.length === 0) {
+            container.innerHTML = `
+                <div class="form-label" style="margin-bottom:var(--sp-2);">Installed Strategies</div>
+                <p style="color:var(--text-3);font-size:0.85rem;">No custom strategies uploaded yet.</p>`;
+            return;
+        }
+
+        container.innerHTML = `
+            <div class="form-label" style="margin-bottom:var(--sp-2);">Custom Strategies (${custom.length})</div>
+            ${custom.map(s => `
+                <div class="uploaded-strat-row">
+                    <div>
+                        <span class="uploaded-strat-name">${s.name}</span>
+                        ${s.description
+                            ? `<div style="font-size:11px;color:var(--text-3);margin-top:1px;">${s.description}</div>`
+                            : ''}
+                    </div>
+                    <span class="badge badge-success" style="font-size:10px;">Active</span>
+                </div>
+            `).join('')}`;
+    } catch (e) {
+        container.innerHTML = '';
+    }
+}
+
 
 function refreshAutoTradeList() {
     const container = document.getElementById('auto-scanner-list');

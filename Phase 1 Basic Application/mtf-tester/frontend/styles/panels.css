@@ -459,3 +459,55 @@
         max-height: 250px;
     }
 }
+
+/* ═══ STRATEGY UPLOAD DROP ZONE ════════════════════════════ */
+.upload-drop-zone {
+    border: 2px dashed var(--border-1);
+    border-radius: var(--r-md);
+    padding: var(--sp-6) var(--sp-4);
+    text-align: center;
+    transition: border-color var(--t-base), background var(--t-base);
+    cursor: default;
+    background: rgba(255,255,255,0.01);
+}
+.upload-drop-zone:hover,
+.upload-drop-zone.drag-over {
+    border-color: var(--accent);
+    background: rgba(99, 102, 241, 0.06);
+}
+.upload-icon {
+    font-size: 2.2rem;
+    margin-bottom: var(--sp-2);
+    line-height: 1;
+}
+.upload-text {
+    color: var(--text-1);
+    font-size: var(--fs-sm);
+    margin-bottom: 4px;
+}
+.upload-sub {
+    color: var(--text-3);
+    font-size: var(--fs-xs);
+    margin-bottom: var(--sp-3);
+}
+
+/* ── Uploaded strategy rows ────────────────────────────── */
+.uploaded-strat-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--sp-2) var(--sp-3);
+    background: var(--bg-card);
+    border: 1px solid var(--border-1);
+    border-radius: var(--r-sm);
+    margin-bottom: 6px;
+    transition: border-color var(--t-fast);
+}
+.uploaded-strat-row:hover {
+    border-color: var(--border-2);
+}
+.uploaded-strat-name {
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    color: var(--text-1);
+}

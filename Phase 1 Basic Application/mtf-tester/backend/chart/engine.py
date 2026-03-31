@@ -40,6 +40,17 @@ class Backtester:
 
         total_bars = len(data)
 
+        # ── Call on_start ONCE before the bar loop ────────────────────
+        # Required for cache-based (dead-template) strategies that
+        # pre-compute indicators in on_start() and read from self._cache
+        # in on_bar(). Without this call, self._cache is empty → crash.
+        if hasattr(strategy, "on_start"):
+            try:
+                strategy.on_start(data)
+            except Exception as e:
+                import logging
+                logging.getLogger("engine").warning(f"Strategy on_start failed: {e}")
+
         for i in range(total_bars):
             current_data = data.iloc[: i + 1].copy()
             current_bar = data.iloc[i]
@@ -95,9 +106,36 @@ class Backtester:
         indicator_data = {}
         if hasattr(strategy, "get_indicator_data"):
             try:
-                indicator_data = strategy.get_indicator_data(data)
+                raw_ind = strategy.get_indicator_data(data)
             except Exception:
-                indicator_data = {}
+                raw_ind = {}
+
+            if isinstance(raw_ind, list):
+                # Phase 2 IndicatorPlot list — convert to chart-ready dict
+                for plot in raw_ind:
+                    name   = getattr(plot, "label", None) or getattr(plot, "id", "indicator")
+                    values = getattr(plot, "values", [])
+                    if values:
+                        indicator_data[name] = values  # already [{time,value},...]
+            elif isinstance(raw_ind, dict):
+                # Legacy: {name: [float, ...]} — convert to [{time, value},...]
+                for name, raw_values in raw_ind.items():
+                    fmt_points = []
+                    if not raw_values:
+                        continue
+                    # Check if already formatted
+                    if isinstance(raw_values, list) and raw_values and isinstance(raw_values[0], dict):
+                        indicator_data[name] = raw_values
+                        continue
+                    for idx, val in enumerate(raw_values):
+                        if val is not None and not (isinstance(val, float) and pd.isna(val)):
+                            t = data.iloc[idx]["time"]
+                            fmt_points.append({
+                                "time": t.isoformat() if hasattr(t, "isoformat") else str(t),
+                                "value": round(float(val), 6),
+                            })
+                    if fmt_points:
+                        indicator_data[name] = fmt_points
 
         # Convert bar data for frontend
         bar_data = []
