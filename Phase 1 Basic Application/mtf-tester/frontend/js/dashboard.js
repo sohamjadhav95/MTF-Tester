@@ -735,41 +735,72 @@ function handleScannerMsg(id, msg) {
     // ── Bar updates (plural): array of {symbol, timeframe, bar}
     if (msg.type === 'bar_updates') {
         const updates = msg.data || [];
-        for (const upd of updates) {
-            const tf = upd.timeframe;
-            const bar = upd.bar;
-            if (!tf || !bar) continue;
 
+        // Group bars by timeframe — gap-fill sends many bars per TF at once
+        const byTf = {};
+        for (const upd of updates) {
+            if (!upd.timeframe || !upd.bar) continue;
+            if (!byTf[upd.timeframe]) byTf[upd.timeframe] = [];
+            byTf[upd.timeframe].push(upd.bar);
+        }
+
+        for (const [tf, bars] of Object.entries(byTf)) {
             const key = `${id}-${tf}`;
             const inst = _chartInstances[key];
-            if (inst && inst.candleSeries) {
-                // Incremental update — no full re-render!
+            if (!inst || !inst.candleSeries) continue;
+
+            if (bars.length === 1) {
+                // ── Normal single-bar live tick: fast update() path ──
+                const bar = bars[0];
                 try {
                     inst.candleSeries.update({
                         time: _toChartTs(bar.time),
-                        open: bar.open,
-                        high: bar.high,
-                        low: bar.low,
-                        close: bar.close,
+                        open: bar.open, high: bar.high,
+                        low: bar.low, close: bar.close,
                     });
                 } catch(e) { console.error('Chart update error:', e); }
 
-                // Also update expanded chart if it's viewing this tf
+                // Mirror to expanded modal if open on this TF
                 if (_expandedState.scannerId === id && _expandedState.tf === tf && _expandedState.candles) {
-                    try {
-                        _expandedState.candles.update({
-                            time: _toChartTs(bar.time),
-                            open: bar.open,
-                            high: bar.high,
-                            low: bar.low,
-                            close: bar.close,
-                        });
-                    } catch(e) {}
+                    try { _expandedState.candles.update({ time: _toChartTs(bar.time), open: bar.open, high: bar.high, low: bar.low, close: bar.close }); } catch(e) {}
                 }
+
+                // Update price display
+                const priceEl = document.getElementById(`${id}-price-${tf}`);
+                if (priceEl) priceEl.textContent = fmtPrice(bar.close);
+
+            } else {
+                // ── Gap-fill: multiple bars arrived — merge + setData() ───
+                // Get existing data from the series, merge with new bars
+                let existing = [];
+                try { existing = inst.candleSeries.data() || []; } catch(e) {}
+
+                // Map existing to a set by time for dedup
+                const merged = new Map();
+                for (const b of existing) merged.set(b.time, b);
+
+                // Add/overwrite with new bars
+                for (const bar of bars) {
+                    const ts = _toChartTs(bar.time);
+                    merged.set(ts, { time: ts, open: bar.open, high: bar.high, low: bar.low, close: bar.close });
+                }
+
+                // Sort ascending and setData once
+                const allBars = Array.from(merged.values()).sort((a, b) => a.time - b.time);
+                try { inst.candleSeries.setData(allBars); } catch(e) { console.error('Gap-fill setData error:', e); }
+
+                // Re-apply markers after setData
+                if (inst.markers && inst.markers.length > 0) {
+                    try { inst.candleSeries.setMarkers(inst.markers); } catch(e) {}
+                }
+
+                // Update price display to latest bar
+                const lastBar = bars[bars.length - 1];
+                const priceEl = document.getElementById(`${id}-price-${tf}`);
+                if (priceEl) priceEl.textContent = fmtPrice(lastBar.close);
+
+                console.log(`Gap-fill [${tf}]: inserted ${bars.length} bars`);
             }
-            // Update price display
-            const priceEl = document.getElementById(`${id}-price-${tf}`);
-            if (priceEl) priceEl.textContent = fmtPrice(bar.close);
         }
     }
 

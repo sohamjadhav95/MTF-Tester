@@ -420,33 +420,74 @@ class MTFLiveEngine:
 
     # ── REST Polling (MT5) ──────────────────────────────────────
 
+    # Seconds per bar for each timeframe
+    _TF_SECONDS = {
+        "M1": 60, "M5": 300, "M15": 900, "M30": 1800,
+        "H1": 3600, "H4": 14400, "D1": 86400, "W1": 604800, "MN1": 2592000,
+    }
+
+    def _gap_fill_count(self, tf: str) -> int:
+        """
+        Dynamically compute how many bars to fetch for this timeframe.
+        If the rolling_df is behind current time (startup gap, M1 most at risk),
+        fetch enough bars to fill the entire gap, not just 3.
+        Capped at 500 to avoid huge MT5 requests.
+        """
+        min_bars = 5
+        if tf not in self._rolling_df or self._rolling_df[tf].empty:
+            return min_bars
+
+        last_bar_time = self._rolling_df[tf].iloc[-1]["time"]
+
+        # Normalise to naive UTC for comparison
+        try:
+            if hasattr(last_bar_time, "tzinfo") and last_bar_time.tzinfo is not None:
+                last_bar_time = last_bar_time.replace(tzinfo=None)
+            now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+            gap_seconds = max(0.0, (now_naive - last_bar_time).total_seconds())
+        except Exception:
+            return min_bars
+
+        tf_secs  = self._TF_SECONDS.get(tf, 300)
+        # +5 buffer bars ensures we never miss the boundary bar
+        needed   = int(gap_seconds / tf_secs) + 5
+        return max(min_bars, min(needed, 500))
+
     def process_latest_data(self) -> Tuple[List[Dict], List[Dict]]:
         signals = []
         updates = []
 
         for tf in self.timeframes:
             try:
-                df_latest = self.provider.fetch_latest_bars(self.symbol, tf, 3)
+                bars_to_fetch = self._gap_fill_count(tf)
+                df_latest = self.provider.fetch_latest_bars(self.symbol, tf, bars_to_fetch)
             except Exception:
                 continue
 
             if df_latest.empty:
                 continue
 
+            # ── Remember where rolling_df ends BEFORE update ───────────
             if tf not in self._rolling_df or self._rolling_df[tf].empty:
                 self._rolling_df[tf] = df_latest.copy()
+                prev_len = 0
+                prev_last_time = None
             else:
                 df = self._rolling_df[tf]
+                prev_len = len(df)
+                prev_last_time = df.iloc[-1]["time"]
+
                 for _, row in df_latest.iterrows():
                     bar_time = row["time"]
                     last_time = df.iloc[-1]["time"]
-
                     new_row_df = pd.DataFrame([row.to_dict()])
 
                     if bar_time == last_time:
+                        # Update current open bar in place
                         for col in ["open", "high", "low", "close", "volume"]:
                             df.at[df.index[-1], col] = row[col]
                     elif bar_time > last_time:
+                        # Genuinely new bar — append
                         df = pd.concat([df, new_row_df], ignore_index=True)
                         if len(df) > self._HISTORY_BARS:
                             df = df.iloc[-self._HISTORY_BARS:].reset_index(drop=True)
@@ -456,16 +497,44 @@ class MTFLiveEngine:
             current_idx = len(df) - 1
             current_time = df.iloc[current_idx]["time"]
 
-            bar_dict = {
-                "time": current_time.isoformat() if hasattr(current_time, "isoformat") else str(current_time),
-                "open": float(df.iloc[current_idx]["open"]),
-                "high": float(df.iloc[current_idx]["high"]),
-                "low": float(df.iloc[current_idx]["low"]),
-                "close": float(df.iloc[current_idx]["close"]),
-                "volume": int(df.iloc[current_idx]["volume"] if pd.notna(df.iloc[current_idx]["volume"]) else 0)
-            }
-            log.info(f"LIVE [{tf}] time={bar_dict['time']} type={type(current_time)}")
-            updates.append({"symbol": self.symbol, "timeframe": tf, "bar": bar_dict})
+            # ── Broadcast ALL bars that are genuinely new (gap-fill) ───
+            # Find first index that is strictly newer than prev_last_time
+            if prev_last_time is not None:
+                gap_bars = []
+                for i in range(current_idx, -1, -1):
+                    bar_time_i = df.iloc[i]["time"]
+                    if bar_time_i <= prev_last_time:
+                        break
+                    t_str = bar_time_i.isoformat() if hasattr(bar_time_i, "isoformat") else str(bar_time_i)
+                    gap_bars.append({
+                        "symbol": self.symbol,
+                        "timeframe": tf,
+                        "bar": {
+                            "time": t_str,
+                            "open": float(df.iloc[i]["open"]),
+                            "high": float(df.iloc[i]["high"]),
+                            "low": float(df.iloc[i]["low"]),
+                            "close": float(df.iloc[i]["close"]),
+                            "volume": int(df.iloc[i]["volume"] if pd.notna(df.iloc[i]["volume"]) else 0),
+                        }
+                    })
+                # Reverse so oldest→newest order for the frontend
+                for gb in reversed(gap_bars):
+                    updates.append(gb)
+                if len(gap_bars) > 1:
+                    log.info(f"GAP-FILL [{tf}] sent {len(gap_bars)} bars to bridge history→live")
+            else:
+                # First time: emit only the current bar
+                updates.append({"symbol": self.symbol, "timeframe": tf, "bar": {
+                    "time": current_time.isoformat() if hasattr(current_time, "isoformat") else str(current_time),
+                    "open": float(df.iloc[current_idx]["open"]),
+                    "high": float(df.iloc[current_idx]["high"]),
+                    "low": float(df.iloc[current_idx]["low"]),
+                    "close": float(df.iloc[current_idx]["close"]),
+                    "volume": int(df.iloc[current_idx]["volume"] if pd.notna(df.iloc[current_idx]["volume"]) else 0),
+                }})
+
+            log.info(f"LIVE [{tf}] time={current_time} bars_fetched={bars_to_fetch}")
 
             # Re-call on_start() so cache is recomputed on updated rolling data
             strategy = self.strategies[tf]
