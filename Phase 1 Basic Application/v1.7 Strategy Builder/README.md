@@ -58,4 +58,4 @@ mtf-tester/
 
 - **Backend**: Python 3.11+, FastAPI, SQLite
 - **Frontend**: Vanilla HTML/CSS/JS (no framework)
-- **Providers**: MetaTrader5 API, Binance Futures REST/WS
+- **Providers**: MetaTrader5 API, Binance Futures
