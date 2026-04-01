@@ -8,11 +8,13 @@ Supports both MT5 (REST polling) and Binance (WebSocket streaming).
 
 import asyncio
 import json
-import time
+import logging
 import threading
-import pandas as pd
-from typing import Dict, List, Optional, Tuple, Any, Callable
+import time
+import uuid
 from datetime import datetime, timezone
+from typing import Dict, List, Optional, Tuple, Any, Callable
+import pandas as pd
 from main.logger import get_logger
 
 log = get_logger("mtf")
@@ -65,12 +67,15 @@ class MTFLiveEngine:
         for tf in timeframes:
             self.strategies[tf] = self.strategy_cls(settings=settings)
 
+        self.active_data_tfs = list(set(timeframes + getattr(self.strategy_cls, "required_timeframes", [])))
+
         # Track last processed close time per timeframe to avoid duplicate signals
         self.last_signal_time = {tf: None for tf in timeframes}
 
         self._started_tfs: set = set()
 
         self._rolling_df: Dict[str, pd.DataFrame] = {}
+        self.active_trades: Dict[str, List[Dict]] = {tf: [] for tf in timeframes}
         self._HISTORY_BARS = 3000
 
         self._running = False
@@ -160,8 +165,12 @@ class MTFLiveEngine:
                 if updates:
                     await self._push({"type": "bar_updates", "data": updates})
                 for sig in signals:
-                    await self._push({"type": "signal", "data": sig})
-                    log.info(f"Signal | {sig['direction']} {sig['symbol']} [{sig['timeframe']}] @ {sig['price']}")
+                    msg_type = sig.get("type", "signal")
+                    await self._push({"type": msg_type, "data": sig})
+                    if msg_type == "signal":
+                        log.info(f"Signal | {sig['direction']} {sig['symbol']} [{sig['timeframe']}] @ {sig['price']}")
+                    elif msg_type == "trade_update":
+                        log.info(f"Trade Update | {sig['status']} {sig['symbol']} [{sig['timeframe']}]")
             except Exception as e:
                 log.error(f"Poll error: {e}")
             await asyncio.sleep(5)
@@ -280,7 +289,8 @@ class MTFLiveEngine:
         historical_signals = []
         historical_indicators = {}
 
-        for tf in self.timeframes:
+        # 1. Fetch raw data for all dependencies (primary + required HTF)
+        for tf in self.active_data_tfs:
             try:
                 if self.start_time_dt:
                     df = self.provider.fetch_ohlcv(
@@ -291,11 +301,15 @@ class MTFLiveEngine:
             except Exception:
                 continue
 
-            if df.empty:
+            if not df.empty:
+                self._rolling_df[tf] = df.copy()
+
+        # 2. Process charts and logic only for requested charting timeframes
+        for tf in self.timeframes:
+            if tf not in self._rolling_df:
                 continue
-
-            self._rolling_df[tf] = df.copy()
-
+            
+            df = self._rolling_df[tf]
             candles = []
             for _, row in df.iterrows():
                 time_val = row["time"]
@@ -310,10 +324,29 @@ class MTFLiveEngine:
                 })
             historical_candles[tf] = candles
             if candles:
-                log.info(f"HIST [{tf}] first={candles[0]['time']} last={candles[-1]['time']} type={type(df.iloc[0]['time'])} bars={len(candles)}")
+                log.info(f"HIST [{tf}] first={candles[0]['time']} last={candles[-1]['time']} bars={len(candles)}")
 
-            # Indicator calculation
             strategy = self.strategies[tf]
+            
+            # Prepare optional HTF data dict
+            htf_data = {}
+            for rtf in getattr(self.strategy_cls, "required_timeframes", []):
+                if rtf in self._rolling_df and rtf != tf:
+                    htf_data[rtf] = self._rolling_df[rtf]
+
+            # Call on_start with full historical data and injected HTF frame
+            if hasattr(strategy, "on_start"):
+                import inspect
+                try:
+                    sig = inspect.signature(strategy.on_start)
+                    kwargs = {}
+                    if "htf_data" in sig.parameters:
+                        kwargs["htf_data"] = htf_data if htf_data else None
+                    strategy.on_start(df, **kwargs)
+                except Exception as e:
+                    log.warning(f"on_start failed [{tf}]: {e}")
+
+            # Calculate indicators AFTER on_start cache runs
             try:
                 ind_raw = strategy.get_indicator_data(df)
             except (AttributeError, Exception):
@@ -337,33 +370,57 @@ class MTFLiveEngine:
             else:
                 start_idx = max(0, len(df) - 50)
 
-            # Call on_start with full historical data before scanning
-            if hasattr(strategy, "on_start"):
-                try:
-                    strategy.on_start(df)
-                except Exception as e:
-                    log.warning(f"on_start failed [{tf}]: {e}")
-
             for i in range(start_idx, len(df)):
+                bar = df.iloc[i]
+                bar_time = bar["time"]
+                formatted_time = bar_time.isoformat() if hasattr(bar_time, "isoformat") else str(bar_time)
+                if not formatted_time.endswith("Z") and "+" not in formatted_time:
+                    formatted_time += "Z"
+
+                # Check active trades for TP/SL hits
+                for t in self.active_trades[tf][:]:
+                    hit_status = None
+                    if t["direction"] == "BUY":
+                        if t["sl"] is not None and bar["low"] <= t["sl"]:
+                            hit_status = "SL HIT"
+                        elif t["tp"] is not None and bar["high"] >= t["tp"]:
+                            hit_status = "TP HIT"
+                    elif t["direction"] == "SELL":
+                        if t["sl"] is not None and bar["high"] >= t["sl"]:
+                            hit_status = "SL HIT"
+                        elif t["tp"] is not None and bar["low"] <= t["tp"]:
+                            hit_status = "TP HIT"
+
+                    if hit_status:
+                        t["status"] = hit_status
+                        t["close_time"] = formatted_time
+                        self.active_trades[tf].remove(t)
+                        # We don't emit historical trade_updates to live ws, we just modify the dictionary in-place
+                        # so the frontend receives them as correctly marked historical_signals on boot.
+
                 try:
                     raw_signal = strategy.on_bar(i, df)
                     signal_dir, sl, tp = self._parse_signal(raw_signal)
 
                     if signal_dir in ("BUY", "SELL"):
-                        bar_time = df.iloc[i]["time"]
                         if self.last_signal_time[tf] != bar_time:
                             self.last_signal_time[tf] = bar_time
-                            historical_signals.append({
+                            trade_obj = {
+                                "id": str(uuid.uuid4()),
+                                "type": "signal",
                                 "symbol": self.symbol,
                                 "timeframe": tf,
                                 "strategy": self.strategy_name,
                                 "direction": signal_dir,
-                                "price": float(df.iloc[i]["close"]),
+                                "price": float(bar["close"]),
                                 "sl": sl,
                                 "tp": tp,
-                                "time": bar_time.isoformat() if hasattr(bar_time, "isoformat") else str(bar_time),
-                                "bar_time": bar_time.isoformat() if hasattr(bar_time, "isoformat") else str(bar_time),
-                            })
+                                "time": formatted_time,
+                                "bar_time": formatted_time,
+                                "status": "RUNNING"
+                            }
+                            self.active_trades[tf].append(trade_obj)
+                            historical_signals.append(trade_obj)
                 except Exception:
                     continue
 
@@ -377,24 +434,37 @@ class MTFLiveEngine:
         signals = []
         updates = []
 
-        for tf in self.timeframes:
+        # 1. Pre-fetch all required live data
+        latest_dfs = {}
+        for tf in self.active_data_tfs:
             try:
-                # Fetch full history window so no gaps ever occur during disconnects/sleep
                 df_latest = self.provider.fetch_latest_bars(self.symbol, tf, self._HISTORY_BARS)
+                if not df_latest.empty:
+                    latest_dfs[tf] = df_latest
             except Exception:
                 continue
 
-            if df_latest.empty:
+        # 2. Process charting & logic timeframes
+        for tf in self.timeframes:
+            if tf not in latest_dfs:
                 continue
 
+            df_latest = latest_dfs[tf]
             old_df = self._rolling_df.get(tf)
             self._rolling_df[tf] = df_latest.copy()
             df = self._rolling_df[tf]
             strategy = self.strategies[tf]
 
+            # Prepare optional HTF data dict from the pre-fetched batch
+            htf_data = {}
+            for rtf in getattr(self.strategy_cls, "required_timeframes", []):
+                if rtf in latest_dfs:
+                    self._rolling_df[rtf] = latest_dfs[rtf].copy()
+                if rtf in self._rolling_df and rtf != tf:
+                    htf_data[rtf] = self._rolling_df[rtf]
+
             # Determine indexes to process for the frontend and signals
             if old_df is None or old_df.empty:
-                # First ever connection tick
                 idxs_to_process = [len(df) - 1]
                 re_run_start = True
             else:
@@ -402,20 +472,21 @@ class MTFLiveEngine:
                 curr_last_time = df.iloc[-1]["time"]
                 
                 if curr_last_time == old_last_time:
-                    # No new bar closed, just a live tick on the last bar
                     idxs_to_process = [len(df) - 1]
                     re_run_start = False
                 else:
-                    # Time has shifted! Recover all missed bars seamlessly.
-                    # We iterate from >= old_last_time to ensure the old bar's final tick is updated,
-                    # followed sequentially by all the missed bars.
                     idxs_to_process = df.index[df["time"] >= old_last_time].tolist()
                     re_run_start = True
 
-            # If the timeframe window shifted, recalibrate strategy cache so indicators don't break
+            # Recalibrate strategy cache, dynamically passing HTF if required
             if re_run_start and hasattr(strategy, "on_start"):
+                import inspect
                 try:
-                    strategy.on_start(df)
+                    sig = inspect.signature(strategy.on_start)
+                    kwargs = {}
+                    if "htf_data" in sig.parameters:
+                        kwargs["htf_data"] = htf_data if htf_data else None
+                    strategy.on_start(df, **kwargs)
                 except Exception as e:
                     log.warning(f"on_start recalibration failed [{tf}]: {e}")
 
@@ -429,15 +500,46 @@ class MTFLiveEngine:
             for idx in idxs_to_process:
                 row = df.iloc[idx]
                 b_time = row["time"]
+                formatted_time = b_time.isoformat() if hasattr(b_time, "isoformat") else str(b_time)
+                if not formatted_time.endswith("Z") and "+" not in formatted_time:
+                    formatted_time += "Z"
                 
                 bar_dict = {
-                    "time": b_time.isoformat() if hasattr(b_time, "isoformat") else str(b_time),
+                    "time": formatted_time,
                     "open": float(row["open"]),
                     "high": float(row["high"]),
                     "low": float(row["low"]),
                     "close": float(row["close"]),
                     "volume": int(row["volume"] if pd.notna(row["volume"]) else 0)
                 }
+
+                # Evaluate Running Trades actively for TP/SL hits
+                for t in self.active_trades[tf][:]:
+                    hit_status = None
+                    if t["direction"] == "BUY":
+                        if t["sl"] is not None and row["low"] <= t["sl"]:
+                            hit_status = "SL HIT"
+                        elif t["tp"] is not None and row["high"] >= t["tp"]:
+                            hit_status = "TP HIT"
+                    elif t["direction"] == "SELL":
+                        if t["sl"] is not None and row["high"] >= t["sl"]:
+                            hit_status = "SL HIT"
+                        elif t["tp"] is not None and row["low"] <= t["tp"]:
+                            hit_status = "TP HIT"
+
+                    if hit_status:
+                        t["status"] = hit_status
+                        t["close_time"] = formatted_time
+                        self.active_trades[tf].remove(t)
+                        # We emit an update!
+                        signals.append({
+                            "type": "trade_update",
+                            "id": t["id"],
+                            "status": hit_status,
+                            "close_time": formatted_time,
+                            "symbol": self.symbol,
+                            "timeframe": tf
+                        })
 
                 # Format indicator payload
                 ind_dict = {}
@@ -462,7 +564,9 @@ class MTFLiveEngine:
                     if signal_dir in ("BUY", "SELL"):
                         if self.last_signal_time.get(tf) != b_time:
                             self.last_signal_time[tf] = b_time
-                            signals.append({
+                            trade_obj = {
+                                "id": str(uuid.uuid4()),
+                                "type": "signal",
                                 "symbol": self.symbol,
                                 "timeframe": tf,
                                 "strategy": self.strategy_name,
@@ -470,9 +574,12 @@ class MTFLiveEngine:
                                 "price": float(row["close"]),
                                 "sl": sl,
                                 "tp": tp,
-                                "time": datetime.now(timezone.utc).isoformat(),
-                                "bar_time": bar_dict["time"],
-                            })
+                                "time": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
+                                "bar_time": formatted_time,
+                                "status": "RUNNING"
+                            }
+                            self.active_trades[tf].append(trade_obj)
+                            signals.append(trade_obj)
                 except Exception:
                     pass
 

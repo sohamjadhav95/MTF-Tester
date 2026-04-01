@@ -302,10 +302,30 @@ async def run_backtest(req: BacktestRequest, request: Request):
     # Inject point for SL/TP calculations
     strategy._point = point
 
+    # Pre-fetch required HTF data if strategy defines it
+    htf_data = {}
+    required_tfs = getattr(strategy_cls, "required_timeframes", [])
+    if required_tfs:
+        for rtf in required_tfs:
+            if rtf == req.timeframe: 
+                continue
+            try:
+                htf_df = await asyncio.to_thread(
+                    mt5.fetch_ohlcv,
+                    symbol=req.symbol,
+                    timeframe=rtf,
+                    date_from=date_from,
+                    date_to=date_to,
+                )
+                if not htf_df.empty:
+                    htf_data[rtf] = htf_df
+            except Exception as e:
+                log.warning(f"Failed to fetch HTF data {rtf} for backtest: {e}")
+
     # Run backtest
     backtester = Backtester(config)
     try:
-        result = await asyncio.to_thread(backtester.run, data, strategy)
+        result = await asyncio.to_thread(backtester.run, data, strategy, htf_data=htf_data if htf_data else None)
     except Exception as e:
         log.error(f"Backtest failed | symbol={req.symbol} | strategy={req.strategy_name} | error={e}")
         raise HTTPException(status_code=500, detail=f"Backtest engine error: {e}")

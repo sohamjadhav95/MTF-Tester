@@ -48,6 +48,7 @@ class BaseStrategy(ABC):
     name: ClassVar[str] = ""
     description: ClassVar[str] = ""
     config_model: ClassVar[Type[StrategyConfig]] = StrategyConfig
+    required_timeframes: ClassVar[list] = []  # E.g. ["M15", "H1"]
 
     def __init__(self, settings: dict[str, Any] | None = None) -> None:
         """
@@ -67,8 +68,17 @@ class BaseStrategy(ABC):
         return cls.config_model.model_json_schema()
 
     # ── Lifecycle hooks ─────────────────────────────────────────
-    def on_start(self, data: pd.DataFrame) -> None:
-        """Called once before the bar loop begins. Override if needed."""
+    def on_start(self, data: pd.DataFrame, htf_data: dict[str, pd.DataFrame] | None = None) -> None:
+        """
+        Called once before the bar loop begins or on cache invalidation.
+        Override if needed.
+        
+        Args:
+            data: Primary timeframe data.
+            htf_data: Dictionary mapping string timeframes (e.g. "M15") to
+                      DataFrames containing their latest historical context.
+                      Only populated if `required_timeframes` is set.
+        """
         pass
 
     def on_finish(self, data: pd.DataFrame) -> None:

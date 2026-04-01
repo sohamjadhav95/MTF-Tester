@@ -33,7 +33,7 @@ class Backtester:
         self.equity_curve: list[dict] = []
         self.peak_equity = config.initial_balance
 
-    def run(self, data: pd.DataFrame, strategy) -> BacktestResult:
+    def run(self, data: pd.DataFrame, strategy, htf_data: dict[str, pd.DataFrame] | None = None) -> BacktestResult:
         """Run the backtest."""
         if data.empty:
             raise ValueError("Cannot run backtest on empty data")
@@ -42,8 +42,14 @@ class Backtester:
 
         # Call on_start once — required for cache-based strategies
         if hasattr(strategy, "on_start"):
+            import inspect
             try:
-                strategy.on_start(data)
+                sig = inspect.signature(strategy.on_start)
+                kwargs = {}
+                if "htf_data" in sig.parameters:
+                    kwargs["htf_data"] = htf_data
+                
+                strategy.on_start(data, **kwargs)
             except Exception as e:
                 from main.logger import get_logger
                 get_logger("engine").warning(f"Strategy on_start() failed: {e}")

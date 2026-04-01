@@ -1009,6 +1009,18 @@ function handleScannerMsg(id, msg) {
         if (priceEl) priceEl.textContent = fmtPrice(price);
     }
 
+    // ── Trade Update ─────────────────────────────────────────
+    if (msg.type === 'trade_update') {
+        const update = msg.data;
+        const sigIdx = scanner.signals.findIndex(s => s.id === update.id);
+        if (sigIdx > -1) {
+            scanner.signals[sigIdx].status = update.status;
+            scanner.signals[sigIdx].close_time = update.close_time;
+            updateSignalStrip(id);
+        }
+        updateGlobalSignalDOM(update);
+    }
+
     // ── Error ────────────────────────────────────────────────
     if (msg.type === 'error') {
         showToast(msg.data || 'Scanner error', 'error');
@@ -1039,24 +1051,58 @@ function updateGlobalSignals(sig) {
     if (!log) return;
 
     // Remove empty state
-    const empty = log.querySelector('.empty-state');
+    const empty = log.querySelector('.empty-state-desc');
     if (empty) empty.remove();
 
     const cls = sig.direction === 'BUY' ? 'long' : 'short';
+    const status = sig.status || 'RUNNING';
+    
+    let statusCls = 'run';
+    if (status === 'TP HIT') statusCls = 'tp';
+    else if (status === 'SL HIT') statusCls = 'sl';
+
     const el = document.createElement('div');
     el.className = 'sig-entry';
+    el.id = `global-sig-${sig.id || Date.now()}`;
     el.innerHTML = `
-        <span class="badge badge-${cls}">${sig.direction}</span>
-        <div class="sig-entry-info">
-            <span class="sig-entry-pair">${sig.symbol} · ${sig.timeframe}</span>
-            <span class="sig-entry-time">${fmtTime(sig.bar_time || sig.time)}</span>
+        <div class="sig-entry-header" onclick="this.parentElement.classList.toggle('expanded')">
+            <span class="badge badge-${cls}">${sig.direction}</span>
+            <div class="sig-entry-info">
+                <span class="sig-entry-pair">${sig.symbol} <span style="color:var(--text-3);">·</span> ${sig.timeframe}</span>
+                <span class="sig-entry-time">${fmtTime(sig.bar_time || sig.time)}</span>
+            </div>
+            <div class="sig-entry-status sig-status-${statusCls}" id="${el.id}-status">${status}</div>
+            <span class="sig-entry-price">${fmtPrice(sig.price)}</span>
         </div>
-        <span class="sig-entry-price">${fmtPrice(sig.price)}</span>
+        <div class="sig-entry-details">
+            <div class="sig-detail-row"><span>Strategy</span> <span>${sig.strategy || '—'}</span></div>
+            <div class="sig-detail-row"><span>Target SL</span> <span class="mono">${sig.sl != null ? fmtPrice(sig.sl) : 'None'}</span></div>
+            <div class="sig-detail-row"><span>Target TP</span> <span class="mono">${sig.tp != null ? fmtPrice(sig.tp) : 'None'}</span></div>
+            <div class="sig-detail-row"><span>Close Time</span> <span id="${el.id}-close" class="mono">${sig.close_time ? fmtTime(sig.close_time) : '—'}</span></div>
+        </div>
     `;
     log.insertBefore(el, log.firstChild);
 
-    // Keep max 30 entries
-    while (log.children.length > 30) log.removeChild(log.lastChild);
+    // Keep max 50 entries
+    while (log.children.length > 50) log.removeChild(log.lastChild);
+}
+
+function updateGlobalSignalDOM(update) {
+    const elId = `global-sig-${update.id}`;
+    const statusEl = document.getElementById(`${elId}-status`);
+    const closeTimeEl = document.getElementById(`${elId}-close`);
+    
+    if (statusEl) {
+        statusEl.textContent = update.status;
+        statusEl.className = 'sig-entry-status'; // reset
+        if (update.status === 'TP HIT') statusEl.classList.add('sig-status-tp');
+        else if (update.status === 'SL HIT') statusEl.classList.add('sig-status-sl');
+        else statusEl.classList.add('sig-status-run');
+    }
+    
+    if (closeTimeEl && update.close_time) {
+        closeTimeEl.textContent = fmtTime(update.close_time);
+    }
 }
 
 // ═══ LIGHTWEIGHT CHARTS — TIMESTAMP UTILITY ═══════════════════

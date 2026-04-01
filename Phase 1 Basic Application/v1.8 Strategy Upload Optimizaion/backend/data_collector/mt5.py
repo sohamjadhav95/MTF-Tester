@@ -7,7 +7,7 @@ Merges the old mt5/connection.py and data/provider.py into one class.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 import pandas as pd
 
@@ -176,6 +176,20 @@ class MT5Provider(DataProvider):
             {"value": "MN1", "label": "Monthly"},
         ]
 
+    def _get_utc_offset(self, mt5_module, symbol: str) -> int:
+        """Dynamically detect Broker time vs UTC time in seconds, accounting for ping latency safely."""
+        if getattr(self, "_broker_offset", None) is None:
+            tick = mt5_module.symbol_info_tick(symbol)
+            if tick:
+                broker_now = datetime.fromtimestamp(tick.time)
+                utc_now = datetime.now(timezone.utc).replace(tzinfo=None)
+                diff = (broker_now - utc_now).total_seconds()
+                # Round to nearest half hour to eliminate millisecond ping noise
+                self._broker_offset = round(diff / 1800) * 1800
+            else:
+                self._broker_offset = 0
+        return self._broker_offset
+
     def fetch_ohlcv(
         self,
         symbol: str,
@@ -199,7 +213,12 @@ class MT5Provider(DataProvider):
                 f"Symbol '{symbol}' not found or could not be selected in MT5"
             )
 
-        rates = mt5.copy_rates_range(symbol, tf, date_from, date_to)
+        # MT5 requires query ranges in Broker time, not UTC.
+        offset = self._get_utc_offset(mt5, symbol)
+        date_from_broker = date_from + timedelta(seconds=offset) if date_from.tzinfo is None else date_from.astimezone(timezone.utc).replace(tzinfo=None) + timedelta(seconds=offset)
+        date_to_broker = date_to + timedelta(seconds=offset) if date_to.tzinfo is None else date_to.astimezone(timezone.utc).replace(tzinfo=None) + timedelta(seconds=offset)
+
+        rates = mt5.copy_rates_range(symbol, tf, date_from_broker, date_to_broker)
 
         if rates is None or len(rates) == 0:
             error = mt5.last_error()
@@ -209,9 +228,12 @@ class MT5Provider(DataProvider):
             )
 
         df = pd.DataFrame(rates)
-        # Use raw MT5 timestamps (broker/server time) — no offset conversion
-        # This ensures consistency between historical and live data
         df["time"] = pd.to_datetime(df["time"], unit="s")
+        # Shift Broker time into strict UTC, then localize it to be timezone-aware.
+        if offset != 0:
+            df["time"] = df["time"] - pd.Timedelta(seconds=offset)
+        df["time"] = df["time"].dt.tz_localize("UTC")
+        
         df = df.rename(columns={"tick_volume": "volume"})
         df = df[["time", "open", "high", "low", "close", "volume", "spread"]]
         df = df.reset_index(drop=True)
@@ -241,8 +263,14 @@ class MT5Provider(DataProvider):
             return pd.DataFrame()
 
         df = pd.DataFrame(rates)
-        # Use raw MT5 timestamps (broker/server time) — no offset conversion
         df["time"] = pd.to_datetime(df["time"], unit="s")
+        
+        # Shift Broker time into strict UTC
+        offset = self._get_utc_offset(mt5, symbol)
+        if offset != 0:
+            df["time"] = df["time"] - pd.Timedelta(seconds=offset)
+        df["time"] = df["time"].dt.tz_localize("UTC")
+        
         df["volume"] = df.get("tick_volume", 0)
         
         return df[["time", "open", "high", "low", "close", "volume"]]
