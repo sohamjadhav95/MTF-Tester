@@ -33,12 +33,26 @@ class Backtester:
         self.equity_curve: list[dict] = []
         self.peak_equity = config.initial_balance
 
-    def run(self, data: pd.DataFrame, strategy) -> BacktestResult:
+    def run(self, data: pd.DataFrame, strategy, htf_data: dict[str, pd.DataFrame] | None = None) -> BacktestResult:
         """Run the backtest."""
         if data.empty:
             raise ValueError("Cannot run backtest on empty data")
 
         total_bars = len(data)
+
+        # Call on_start once — required for cache-based strategies
+        if hasattr(strategy, "on_start"):
+            import inspect
+            try:
+                sig = inspect.signature(strategy.on_start)
+                kwargs = {}
+                if "htf_data" in sig.parameters:
+                    kwargs["htf_data"] = htf_data
+                
+                strategy.on_start(data, **kwargs)
+            except Exception as e:
+                from main.logger import get_logger
+                get_logger("engine").warning(f"Strategy on_start() failed: {e}")
 
         for i in range(total_bars):
             current_data = data.iloc[: i + 1].copy()
@@ -96,6 +110,28 @@ class Backtester:
         if hasattr(strategy, "get_indicator_data"):
             try:
                 indicator_data = strategy.get_indicator_data(data)
+                
+                # Convert raw {name: [float]} to chart-ready {name: [{time, value}]}
+                formatted_indicators = {}
+                for name, values in (indicator_data or {}).items():
+                    if not values:
+                        continue
+                    fmt_points = []
+                    for idx, val in enumerate(values):
+                        if val is not None and idx < len(data):
+                            try:
+                                if isinstance(val, float) and (val != val):  # NaN check
+                                    continue
+                                t = data.iloc[idx]["time"]
+                                fmt_points.append({
+                                    "time":  t.isoformat() if hasattr(t, "isoformat") else str(t),
+                                    "value": round(float(val), 6),
+                                })
+                            except (TypeError, ValueError):
+                                continue
+                    if fmt_points:
+                        formatted_indicators[name] = fmt_points
+                indicator_data = formatted_indicators
             except Exception:
                 indicator_data = {}
 

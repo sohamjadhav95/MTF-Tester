@@ -242,51 +242,20 @@
                 </div>
             </div>
 
-            <!-- ─── CREATE STRATEGY PANEL ──────────────────── -->
+            <!-- ─── CREATE STRATEGY PANEL (Phase 2 Stub) ──── -->
             <div class="panel" id="panel-create-strategy">
                 <div class="panel-header">
-                    <span class="panel-header-title">Strategy Manager</span>
+                    <span class="panel-header-title">Create Strategy</span>
+                    <span class="badge badge-error">Phase 2</span>
                 </div>
-                <div class="panel-body">
-
-                    <!-- Tab switcher -->
-                    <div class="trade-mode-tabs" style="margin-bottom: var(--sp-4);">
-                        <button class="trade-mode-tab active" data-strat-tab="upload">📄 Upload Script</button>
-                        <button class="trade-mode-tab" data-strat-tab="build">🧪 AI Builder <span class="badge badge-muted" style="font-size:10px; vertical-align:middle;">Phase 3</span></button>
+                <div class="phase2-stub">
+                    <div class="phase2-icon">🧪</div>
+                    <div class="phase2-title">Strategy Builder</div>
+                    <div class="phase2-desc">
+                        Describe your trading strategy in plain English and our AI will generate,
+                        validate, and deploy production-ready code — automatically.
                     </div>
-
-                    <!-- Upload tab -->
-                    <div id="strat-tab-upload">
-                        <div class="form-group">
-                            <label class="form-label">Upload a Strategy</label>
-                            <p class="form-hint">Upload a <code>.py</code> file that extends <code>BaseStrategy</code>. It will be validated, added to the strategy selector, and available immediately.</p>
-                        </div>
-
-                        <div class="upload-drop-zone" id="strat-drop-zone">
-                            <div class="upload-icon">📄</div>
-                            <div class="upload-text">Drop your <strong>.py</strong> strategy file here</div>
-                            <div class="upload-sub">or</div>
-                            <label class="btn btn-secondary" style="cursor:pointer; display:inline-flex;">
-                                Browse File
-                                <input type="file" id="strat-file-input" accept=".py" style="display:none;">
-                            </label>
-                        </div>
-
-                        <div id="strat-upload-status" style="margin-top: var(--sp-3); display:none;"></div>
-
-                        <div id="strat-uploaded-list" style="margin-top: var(--sp-4);"></div>
-                    </div>
-
-                    <!-- AI Builder tab (stub) -->
-                    <div id="strat-tab-build" style="display:none;">
-                        <div class="phase2-stub">
-                            <div class="phase2-icon">🧪</div>
-                            <div class="phase2-title">AI Strategy Builder</div>
-                            <div class="phase2-desc">Describe your strategy in plain English. The AI will generate, validate, and deploy production-ready code — automatically.</div>
-                            <div class="badge badge-muted" style="margin-top: 8px;">Coming in Phase 3</div>
-                        </div>
-                    </div>
-
+                    <div class="badge badge-muted" style="margin-top: 8px;">Coming in Phase 2</div>
                 </div>
             </div>
 

@@ -25,6 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadStrategies();
     pollAccountInfo();
     initDeployTrades();
+    initStrategyUpload();
 
     // ── Logout ────────────────────────────────────────────────
     document.getElementById('logout-btn').addEventListener('click', async () => {
@@ -396,6 +397,177 @@ function getStratSettings() {
     return s;
 }
 
+// ═══ STRATEGY UPLOAD ══════════════════════════════════════════
+
+function initStrategyUpload() {
+    const fileInput = document.getElementById('strat-file-input');
+    const dropZone  = document.getElementById('strat-drop-zone');
+
+    if (fileInput) {
+        fileInput.addEventListener('change', e => {
+            if (e.target.files[0]) {
+                uploadStrategyFile(e.target.files[0]);
+                e.target.value = '';  // reset so same file can be re-uploaded
+            }
+        });
+    }
+
+    if (dropZone) {
+        // Click on zone triggers file input (excluding the button itself)
+        dropZone.addEventListener('click', e => {
+            if (e.target.tagName !== 'LABEL' && e.target.tagName !== 'INPUT' &&
+                !e.target.closest('label')) {
+                fileInput && fileInput.click();
+            }
+        });
+
+        dropZone.addEventListener('dragover', e => {
+            e.preventDefault();
+            dropZone.classList.add('drag-over');
+        });
+        dropZone.addEventListener('dragleave', e => {
+            if (!dropZone.contains(e.relatedTarget)) {
+                dropZone.classList.remove('drag-over');
+            }
+        });
+        dropZone.addEventListener('drop', e => {
+            e.preventDefault();
+            dropZone.classList.remove('drag-over');
+            const file = e.dataTransfer.files[0];
+            if (!file) return;
+            if (!file.name.endsWith('.py')) {
+                showToast('Only .py Python files are accepted', 'warning');
+                return;
+            }
+            uploadStrategyFile(file);
+        });
+    }
+
+    // Load uploaded list when panel is opened
+    refreshUploadedStrategies();
+}
+
+async function uploadStrategyFile(file) {
+    const statusDiv = document.getElementById('strat-upload-status');
+    if (!statusDiv) return;
+
+    // Show uploading state
+    statusDiv.style.display = 'block';
+    statusDiv.innerHTML = `
+        <div class="badge badge-muted" style="display:inline-flex; align-items:center; gap:6px;">
+            <span class="spinner" style="width:10px;height:10px;"></span>
+            Uploading ${file.name}...
+        </div>`;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+        const token = Auth.getToken();
+        const res = await fetch('/api/chart/strategies/upload', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` },
+            body: formData,
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+            throw new Error(data.detail || 'Upload failed');
+        }
+
+        // Success
+        statusDiv.innerHTML = `
+            <div style="display:flex; align-items:center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3);
+                        background: color-mix(in srgb, var(--long) 12%, var(--surface-2));
+                        border: 1px solid color-mix(in srgb, var(--long) 30%, transparent);
+                        border-radius: var(--radius-sm);">
+                <span style="color:var(--long);">✓</span>
+                <span style="font-size:0.85rem; color:var(--text-1);">
+                    <strong>"${data.strategy_name}"</strong> loaded successfully
+                </span>
+            </div>`;
+
+        showToast(`Strategy "${data.strategy_name}" is now available`, 'success');
+
+        // Refresh the strategies dropdown and uploaded list
+        await loadStrategies();
+        await refreshUploadedStrategies();
+
+        // Clear status after 5 seconds
+        setTimeout(() => {
+            if (statusDiv) statusDiv.style.display = 'none';
+        }, 5000);
+
+    } catch (err) {
+        statusDiv.innerHTML = `
+            <div style="display:flex; align-items:flex-start; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3);
+                        background: color-mix(in srgb, var(--short) 12%, var(--surface-2));
+                        border: 1px solid color-mix(in srgb, var(--short) 30%, transparent);
+                        border-radius: var(--radius-sm);">
+                <span style="color:var(--short); flex-shrink:0;">✗</span>
+                <span style="font-size:0.82rem; color:var(--text-1);">${err.message}</span>
+            </div>`;
+        showToast('Upload failed — see details in panel', 'error');
+    }
+}
+
+async function refreshUploadedStrategies() {
+    const section   = document.getElementById('strat-uploaded-section');
+    const container = document.getElementById('strat-uploaded-list');
+    if (!container) return;
+
+    try {
+        const data = await api('/api/chart/strategies/uploaded/list');
+        const uploaded = data.uploaded || [];
+
+        if (uploaded.length === 0) {
+            if (section) section.style.display = 'none';
+            return;
+        }
+
+        if (section) section.style.display = 'block';
+
+        container.innerHTML = uploaded.map(s => `
+            <div class="uploaded-strat-row" id="uploaded-row-${CSS.escape(s.filename)}">
+                <div class="uploaded-strat-info">
+                    <span class="uploaded-strat-name">${s.strategy_name}</span>
+                    <span class="uploaded-strat-file">${s.filename} · ${s.size_kb}KB</span>
+                </div>
+                <div class="uploaded-strat-actions">
+                    <span class="badge badge-success" style="font-size:10px;">Active</span>
+                    <button class="btn btn-error btn-xs"
+                            onclick="deleteUploadedStrategy('${s.filename}', '${s.strategy_name}')"
+                            title="Remove strategy">
+                        Remove
+                    </button>
+                </div>
+            </div>
+        `).join('');
+
+    } catch (err) {
+        container.innerHTML = `<p style="color:var(--text-3); font-size:0.82rem;">
+            Could not load uploaded strategies list.</p>`;
+    }
+}
+
+async function deleteUploadedStrategy(filename, strategyName) {
+    const ok = await showConfirm(
+        'Remove Strategy',
+        `Remove "${strategyName}"? It will no longer appear in the strategy dropdown. ` +
+        `This cannot be undone.`
+    );
+    if (!ok) return;
+
+    try {
+        await api(`/api/chart/strategies/uploaded/${encodeURIComponent(filename)}`, 'DELETE');
+        showToast(`"${strategyName}" removed`, 'info');
+        await loadStrategies();
+        await refreshUploadedStrategies();
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
 // ═══ LAUNCH SCANNER → CREATE DYNAMIC PANEL ════════════════════
 async function handleLaunchScanner() {
     const name = document.getElementById('cfg-name').value.trim();
@@ -458,7 +630,6 @@ async function handleLaunchScanner() {
         for (const sig of signals) {
             _activeScanners[id].signals.push(sig);
             updateGlobalSignals(sig);
-            updateSignalList(id, sig);
             const sigEl = document.getElementById(`${id}-sig-${sig.timeframe}`);
             if (sigEl) {
                 const cls = sig.direction === 'BUY' ? 'long' : 'short';
@@ -548,38 +719,22 @@ function createDynamicPanel(id, name, config) {
         <div class="signal-strip" id="${id}-strip">
             <span style="color:var(--text-3);">Loading charts...</span>
         </div>
-        <div class="scanner-content-wrapper">
-            <div class="scanner-charts-area">
-                <div class="chart-grid ${colClass}" id="${id}-charts">
-                    ${config.timeframes.map(tf => `
-                        <div class="chart-cell" id="${id}-cell-${tf}">
-                            <div class="chart-cell-header">
-                                <span class="chart-cell-tf">${tf}</span>
-                                <div style="display:flex; align-items:center; gap: 6px;">
-                                    <span class="chart-cell-price mono" id="${id}-price-${tf}">—</span>
-                                    <button class="chart-expand-btn" onclick="openExpandedChart('${id}', '${tf}')" title="Expand Chart">&#x26F6;</button>
-                                </div>
-                            </div>
-                            <div class="chart-cell-body" id="${id}-canvas-${tf}">
-                                <div class="empty-state" style="padding: 40px;"><div class="spinner-lg"></div></div>
-                            </div>
-                            <div class="chart-cell-signal" id="${id}-sig-${tf}"></div>
+        <div class="chart-grid ${colClass}" id="${id}-charts">
+            ${config.timeframes.map(tf => `
+                <div class="chart-cell" id="${id}-cell-${tf}">
+                    <div class="chart-cell-header">
+                        <span class="chart-cell-tf">${tf}</span>
+                        <div style="display:flex; align-items:center; gap: 6px;">
+                            <span class="chart-cell-price mono" id="${id}-price-${tf}">—</span>
+                            <button class="chart-expand-btn" onclick="openExpandedChart('${id}', '${tf}')" title="Expand Chart">&#x26F6;</button>
                         </div>
-                    `).join('')}
-                </div>
-            </div>
-            <div class="scanner-signals-panel" id="${id}-signals-panel">
-                <div class="signals-panel-header">
-                    <span class="signals-panel-title">📋 Signal Log</span>
-                    <span class="signals-panel-count" id="${id}-sig-count">0</span>
-                </div>
-                <div class="signals-panel-list" id="${id}-sig-list">
-                    <div class="empty-state" style="padding: 24px 12px;">
-                        <div style="font-size: 20px; opacity: 0.2;">📡</div>
-                        <div class="empty-state-desc">Signals will appear here</div>
                     </div>
+                    <div class="chart-cell-body" id="${id}-canvas-${tf}">
+                        <div class="empty-state" style="padding: 40px;"><div class="spinner-lg"></div></div>
+                    </div>
+                    <div class="chart-cell-signal" id="${id}-sig-${tf}"></div>
                 </div>
-            </div>
+            `).join('')}
         </div>
     `;
 
@@ -704,7 +859,6 @@ function handleScannerMsg(id, msg) {
         for (const sig of signals) {
             scanner.signals.push(sig);
             updateGlobalSignals(sig);
-            updateSignalList(id, sig);
             const sigEl = document.getElementById(`${id}-sig-${sig.timeframe}`);
             if (sigEl) {
                 const cls = sig.direction === 'BUY' ? 'long' : 'short';
@@ -735,72 +889,41 @@ function handleScannerMsg(id, msg) {
     // ── Bar updates (plural): array of {symbol, timeframe, bar}
     if (msg.type === 'bar_updates') {
         const updates = msg.data || [];
-
-        // Group bars by timeframe — gap-fill sends many bars per TF at once
-        const byTf = {};
         for (const upd of updates) {
-            if (!upd.timeframe || !upd.bar) continue;
-            if (!byTf[upd.timeframe]) byTf[upd.timeframe] = [];
-            byTf[upd.timeframe].push(upd.bar);
-        }
+            const tf = upd.timeframe;
+            const bar = upd.bar;
+            if (!tf || !bar) continue;
 
-        for (const [tf, bars] of Object.entries(byTf)) {
             const key = `${id}-${tf}`;
             const inst = _chartInstances[key];
-            if (!inst || !inst.candleSeries) continue;
-
-            if (bars.length === 1) {
-                // ── Normal single-bar live tick: fast update() path ──
-                const bar = bars[0];
+            if (inst && inst.candleSeries) {
+                // Incremental update — no full re-render!
                 try {
                     inst.candleSeries.update({
                         time: _toChartTs(bar.time),
-                        open: bar.open, high: bar.high,
-                        low: bar.low, close: bar.close,
+                        open: bar.open,
+                        high: bar.high,
+                        low: bar.low,
+                        close: bar.close,
                     });
                 } catch(e) { console.error('Chart update error:', e); }
 
-                // Mirror to expanded modal if open on this TF
+                // Also update expanded chart if it's viewing this tf
                 if (_expandedState.scannerId === id && _expandedState.tf === tf && _expandedState.candles) {
-                    try { _expandedState.candles.update({ time: _toChartTs(bar.time), open: bar.open, high: bar.high, low: bar.low, close: bar.close }); } catch(e) {}
+                    try {
+                        _expandedState.candles.update({
+                            time: _toChartTs(bar.time),
+                            open: bar.open,
+                            high: bar.high,
+                            low: bar.low,
+                            close: bar.close,
+                        });
+                    } catch(e) {}
                 }
-
-                // Update price display
-                const priceEl = document.getElementById(`${id}-price-${tf}`);
-                if (priceEl) priceEl.textContent = fmtPrice(bar.close);
-
-            } else {
-                // ── Gap-fill: multiple bars arrived — merge + setData() ───
-                // Get existing data from the series, merge with new bars
-                let existing = [];
-                try { existing = inst.candleSeries.data() || []; } catch(e) {}
-
-                // Map existing to a set by time for dedup
-                const merged = new Map();
-                for (const b of existing) merged.set(b.time, b);
-
-                // Add/overwrite with new bars
-                for (const bar of bars) {
-                    const ts = _toChartTs(bar.time);
-                    merged.set(ts, { time: ts, open: bar.open, high: bar.high, low: bar.low, close: bar.close });
-                }
-
-                // Sort ascending and setData once
-                const allBars = Array.from(merged.values()).sort((a, b) => a.time - b.time);
-                try { inst.candleSeries.setData(allBars); } catch(e) { console.error('Gap-fill setData error:', e); }
-
-                // Re-apply markers after setData
-                if (inst.markers && inst.markers.length > 0) {
-                    try { inst.candleSeries.setMarkers(inst.markers); } catch(e) {}
-                }
-
-                // Update price display to latest bar
-                const lastBar = bars[bars.length - 1];
-                const priceEl = document.getElementById(`${id}-price-${tf}`);
-                if (priceEl) priceEl.textContent = fmtPrice(lastBar.close);
-
-                console.log(`Gap-fill [${tf}]: inserted ${bars.length} bars`);
             }
+            // Update price display
+            const priceEl = document.getElementById(`${id}-price-${tf}`);
+            if (priceEl) priceEl.textContent = fmtPrice(bar.close);
         }
     }
 
@@ -874,9 +997,6 @@ function handleScannerMsg(id, msg) {
         // Update global signals log
         updateGlobalSignals(sig);
 
-        // Update per-scanner signal list panel
-        updateSignalList(id, sig);
-
         showToast(`${sig.direction} · ${sig.symbol} [${sig.timeframe}] @ ${fmtPrice(sig.price)}`,
             sig.direction === 'BUY' ? 'success' : 'error', 5000);
     }
@@ -887,6 +1007,18 @@ function handleScannerMsg(id, msg) {
         const price = msg.data.price;
         const priceEl = document.getElementById(`${id}-price-${tf}`);
         if (priceEl) priceEl.textContent = fmtPrice(price);
+    }
+
+    // ── Trade Update ─────────────────────────────────────────
+    if (msg.type === 'trade_update') {
+        const update = msg.data;
+        const sigIdx = scanner.signals.findIndex(s => s.id === update.id);
+        if (sigIdx > -1) {
+            scanner.signals[sigIdx].status = update.status;
+            scanner.signals[sigIdx].close_time = update.close_time;
+            updateSignalStrip(id);
+        }
+        updateGlobalSignalDOM(update);
     }
 
     // ── Error ────────────────────────────────────────────────
@@ -919,68 +1051,59 @@ function updateGlobalSignals(sig) {
     if (!log) return;
 
     // Remove empty state
-    const empty = log.querySelector('.empty-state');
+    const empty = log.querySelector('.empty-state-desc');
     if (empty) empty.remove();
 
     const cls = sig.direction === 'BUY' ? 'long' : 'short';
-    const slStr = sig.sl != null ? fmtPrice(sig.sl) : '—';
-    const tpStr = sig.tp != null ? fmtPrice(sig.tp) : '—';
+    const status = sig.status || 'RUNNING';
+    
+    let statusCls = 'run';
+    if (status === 'TP HIT') statusCls = 'tp';
+    else if (status === 'SL HIT') statusCls = 'sl';
+
     const el = document.createElement('div');
     el.className = 'sig-entry';
+    el.id = `global-sig-${sig.id || Date.now()}`;
     el.innerHTML = `
-        <span class="badge badge-${cls}">${sig.direction}</span>
-        <div class="sig-entry-info">
-            <span class="sig-entry-pair">${sig.symbol} · ${sig.timeframe}</span>
-            <span class="sig-entry-time">${fmtTime(sig.bar_time || sig.time)}</span>
+        <div class="sig-entry-header" onclick="this.parentElement.classList.toggle('expanded')">
+            <span class="badge badge-${cls}">${sig.direction}</span>
+            <div class="sig-entry-info">
+                <span class="sig-entry-pair">${sig.symbol} <span style="color:var(--text-3);">·</span> ${sig.timeframe}</span>
+                <span class="sig-entry-time">${fmtTime(sig.bar_time || sig.time)}</span>
+            </div>
+            <div class="sig-entry-status sig-status-${statusCls}" id="${el.id}-status">${status}</div>
+            <span class="sig-entry-price">${fmtPrice(sig.price)}</span>
         </div>
-        <span class="sig-entry-price">${fmtPrice(sig.price)}</span>
+        <div class="sig-entry-details">
+            <div class="sig-detail-row"><span>Strategy</span> <span>${sig.strategy || '—'}</span></div>
+            <div class="sig-detail-row"><span>Target SL</span> <span class="mono">${sig.sl != null ? fmtPrice(sig.sl) : 'None'}</span></div>
+            <div class="sig-detail-row"><span>Target TP</span> <span class="mono">${sig.tp != null ? fmtPrice(sig.tp) : 'None'}</span></div>
+            <div class="sig-detail-row"><span>Close Time</span> <span id="${el.id}-close" class="mono">${sig.close_time ? fmtTime(sig.close_time) : '—'}</span></div>
+        </div>
     `;
     log.insertBefore(el, log.firstChild);
 
-    // Keep max 30 entries
-    while (log.children.length > 30) log.removeChild(log.lastChild);
+    // Keep max 50 entries
+    while (log.children.length > 50) log.removeChild(log.lastChild);
 }
 
-// ═══ SIGNAL LIST PANEL (Per-Scanner) ══════════════════════════
-function updateSignalList(id, sig) {
-    const list = document.getElementById(`${id}-sig-list`);
-    const countEl = document.getElementById(`${id}-sig-count`);
-    if (!list) return;
-
-    // Remove empty state
-    const empty = list.querySelector('.empty-state');
-    if (empty) empty.remove();
-
-    const cls = sig.direction === 'BUY' ? 'sig-buy' : 'sig-sell';
-    const slStr = sig.sl != null ? fmtPrice(sig.sl) : '—';
-    const tpStr = sig.tp != null ? fmtPrice(sig.tp) : '—';
-
-    const entry = document.createElement('div');
-    entry.className = `signal-list-entry ${cls}`;
-    entry.innerHTML = `
-        <div class="signal-list-row">
-            <span class="signal-list-dir ${sig.direction.toLowerCase()}">${sig.direction}</span>
-            <span class="signal-list-tf">${sig.timeframe}</span>
-            <span class="signal-list-price">${fmtPrice(sig.price)}</span>
-            <span class="signal-list-time">${fmtTime(sig.bar_time || sig.time)}</span>
-        </div>
-        <div class="signal-list-meta">
-            <span class="signal-list-sl">SL: ${slStr}</span>
-            <span class="signal-list-tp">TP: ${tpStr}</span>
-        </div>
-    `;
-    list.insertBefore(entry, list.firstChild);
-
-    // Keep max 50 entries
-    while (list.children.length > 50) list.removeChild(list.lastChild);
-
-    // Update count
-    if (countEl) {
-        const scanner = _activeScanners[id];
-        countEl.textContent = scanner ? scanner.signals.length : list.children.length;
+function updateGlobalSignalDOM(update) {
+    const elId = `global-sig-${update.id}`;
+    const statusEl = document.getElementById(`${elId}-status`);
+    const closeTimeEl = document.getElementById(`${elId}-close`);
+    
+    if (statusEl) {
+        statusEl.textContent = update.status;
+        statusEl.className = 'sig-entry-status'; // reset
+        if (update.status === 'TP HIT') statusEl.classList.add('sig-status-tp');
+        else if (update.status === 'SL HIT') statusEl.classList.add('sig-status-sl');
+        else statusEl.classList.add('sig-status-run');
+    }
+    
+    if (closeTimeEl && update.close_time) {
+        closeTimeEl.textContent = fmtTime(update.close_time);
     }
 }
-
 
 // ═══ LIGHTWEIGHT CHARTS — TIMESTAMP UTILITY ═══════════════════
 function _toChartTs(isoStr) {
@@ -1066,50 +1189,17 @@ function initLWChart(scannerId, tf, bars, indicatorData) {
         console.error('Error setting candle data:', e);
     }
 
-    // ── Phase 2: Handle IndicatorPlot list format ──────────────
+    // Add indicator line series
     const indicatorSeriesMap = {};
-    const fallbackColors = ['#3b82f6', '#f59e0b', '#8b5cf6', '#06b6d4', '#ec4899', '#14b8a6'];
-
-    if (indicatorData && Array.isArray(indicatorData) && indicatorData.length > 0) {
-        // Phase 2: Array of IndicatorPlot objects [{id, label, pane, type, color, values},...]
-        for (let ci = 0; ci < indicatorData.length; ci++) {
-            const plot = indicatorData[ci];
-            if (!plot.values || plot.values.length === 0) continue;
-
-            const plotColor = plot.color || fallbackColors[ci % fallbackColors.length];
-            const lineWidth = plot.line_width || 1;
-
-            const line = chart.addLineSeries({
-                color: plotColor,
-                lineWidth: lineWidth,
-                title: plot.label || plot.id || `Indicator ${ci}`,
-            });
-
-            const sortedPts = [...plot.values]
-                .map(p => ({ time: _toChartTs(p.time), value: p.value }))
-                .sort((a, b) => a.time - b.time);
-
-            // Deduplicate
-            const uniquePts = [];
-            const ptSeen = new Set();
-            for (const pt of sortedPts) {
-                if (!ptSeen.has(pt.time)) {
-                    ptSeen.add(pt.time);
-                    uniquePts.push(pt);
-                }
-            }
-
-            try { line.setData(uniquePts); } catch(e) {}
-            indicatorSeriesMap[plot.id || plot.label || `ind_${ci}`] = line;
-        }
-    } else if (indicatorData && typeof indicatorData === 'object' && !Array.isArray(indicatorData)) {
-        // Legacy: dict of {name: [{time, value},...], ...}
+    if (indicatorData && Object.keys(indicatorData).length > 0) {
+        const lineColors = ['#3b82f6', '#f59e0b', '#8b5cf6', '#06b6d4', '#ec4899', '#14b8a6'];
         let colorIdx = 0;
+
         for (const [indName, dataPoints] of Object.entries(indicatorData)) {
             if (!dataPoints || dataPoints.length === 0) continue;
 
             const line = chart.addLineSeries({
-                color: fallbackColors[colorIdx % fallbackColors.length],
+                color: lineColors[colorIdx % lineColors.length],
                 lineWidth: 1,
                 title: indName,
             });
@@ -1118,6 +1208,7 @@ function initLWChart(scannerId, tf, bars, indicatorData) {
                 .map(p => ({ time: _toChartTs(p.time), value: p.value }))
                 .sort((a, b) => a.time - b.time);
 
+            // Deduplicate
             const uniquePts = [];
             const ptSeen = new Set();
             for (const pt of sortedPts) {

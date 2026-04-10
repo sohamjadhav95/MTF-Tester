@@ -12,7 +12,6 @@ pandas==2.2.*
 requests==2.32.*
 python-dateutil==2.9.*
 websocket-client==1.8.*
-python-multipart==0.0.*
 
 # MT5 — Windows only, install separately if needed:
 # pip install MetaTrader5

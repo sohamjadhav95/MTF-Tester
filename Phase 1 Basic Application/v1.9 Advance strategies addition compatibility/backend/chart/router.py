@@ -117,7 +117,19 @@ async def upload_strategy(file: UploadFile = File(...), request: Request = None)
 
     # ── 4. Load and validate class ────────────────────────────────
     try:
+        import builtins as _builtins
+        _safe_builtins = {k: getattr(_builtins, k) for k in [
+            'True', 'False', 'None', 'int', 'float', 'str', 'bool', 'list',
+            'dict', 'tuple', 'set', 'range', 'len', 'max', 'min', 'abs',
+            'round', 'sum', 'sorted', 'enumerate', 'zip', 'map', 'filter',
+            'isinstance', 'issubclass', 'type', 'super', 'property',
+            'staticmethod', 'classmethod', 'print', 'hasattr', 'getattr',
+            'setattr', 'ValueError', 'TypeError', 'KeyError', 'IndexError',
+            'AttributeError', 'Exception', 'RuntimeError', 'StopIteration',
+        ]}
         module = types.ModuleType(file.filename[:-3])
+        # Restrict builtins BEFORE injecting anything else
+        module.__dict__['__builtins__'] = _safe_builtins
         # Make strategy template available in module namespace
         import strategies._template as _tpl
         module.__dict__["BaseStrategy"] = _tpl.BaseStrategy
@@ -173,6 +185,27 @@ async def upload_strategy(file: UploadFile = File(...), request: Request = None)
             detail=f"Strategy on_start() failed with dummy data: {e}"
         )
 
+    # Step 5c — smoke-test on_bar with dummy data
+    try:
+        result = instance.on_bar(len(dummy) - 1, dummy)
+        # Validate return type
+        if result is not None:
+            if isinstance(result, tuple):
+                if len(result) < 1 or str(result[0]).upper() not in ("BUY", "SELL", "HOLD"):
+                    raise ValueError(f"on_bar() tuple first element must be BUY/SELL/HOLD, got: {result[0]}")
+            elif isinstance(result, str):
+                if result.upper() not in ("BUY", "SELL", "HOLD"):
+                    raise ValueError(f"on_bar() must return BUY/SELL/HOLD, got: {result}")
+            else:
+                raise ValueError(f"on_bar() must return str or tuple, got: {type(result).__name__}")
+    except ValueError:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Strategy on_bar() failed with dummy data: {e}"
+        )
+
     # ── 6. Get config schema for UI ───────────────────────────────
     schema = {}
     if hasattr(found_cls, "config_model") and found_cls.config_model:
@@ -226,6 +259,7 @@ async def delete_uploaded_strategy(filename: str, request: Request):
     PROTECTED = {
         "_template.py", "ema_crossover.py",
         "supertrend.py", "reverse_ema_crossover.py",
+        "VWAPStrategy.py",
     }
     if filename in PROTECTED:
         raise HTTPException(status_code=403, detail="Cannot delete built-in strategies")
@@ -250,7 +284,7 @@ async def list_uploaded_strategies(request: Request):
     """List only user-uploaded strategies (not built-ins)."""
     from main.config import STRATEGIES_DIR
 
-    BUILTIN = {"_template.py", "ema_crossover.py", "supertrend.py", "reverse_ema_crossover.py"}
+    BUILTIN = {"_template.py", "ema_crossover.py", "supertrend.py", "reverse_ema_crossover.py", "VWAPStrategy.py"}
     uploaded = []
 
     for path in STRATEGIES_DIR.glob("*.py"):
@@ -276,19 +310,37 @@ async def list_uploaded_strategies(request: Request):
 
 @router.post("/backtest")
 async def run_backtest(req: BacktestRequest, request: Request):
-    mt5 = get_mt5()
-    if not mt5.connected:
-        raise HTTPException(status_code=400, detail="MT5 not connected")
-
     from main.models import BacktestConfig
-    from main.config import TIMEFRAME_MAP
 
-    # Fetch data
+    # ── Resolve provider ──────────────────────────────────────────
+    if req.provider == "binance":
+        from data_collector.binance import BinanceProvider
+        provider = BinanceProvider()
+        if not provider.connected:
+            connect_result = await asyncio.to_thread(provider.connect)
+            if not connect_result["success"]:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Binance connection failed: {connect_result.get('error', 'unknown')}"
+                )
+        # Binance futures: 1 contract = 1 unit base asset
+        default_point = 0.01
+        default_digits = 2
+        default_contract_size = 1.0
+    else:  # mt5
+        provider = get_mt5()
+        if not provider.connected:
+            raise HTTPException(status_code=400, detail="MT5 not connected")
+        default_point = 0.00001
+        default_digits = 5
+        default_contract_size = 100000.0
+
+    # ── Fetch primary OHLCV data ──────────────────────────────────
     try:
         date_from = datetime.fromisoformat(req.date_from)
         date_to = datetime.fromisoformat(req.date_to)
         data = await asyncio.to_thread(
-            mt5.fetch_ohlcv,
+            provider.fetch_ohlcv,
             symbol=req.symbol,
             timeframe=req.timeframe,
             date_from=date_from,
@@ -300,10 +352,11 @@ async def run_backtest(req: BacktestRequest, request: Request):
     if data.empty:
         raise HTTPException(status_code=400, detail="No data returned for the specified range")
 
-    # Get symbol info for contract specs
-    sym_info = mt5.get_symbol_info(req.symbol)
-    point = sym_info.get("point", 0.00001) if sym_info else 0.00001
-    digits = sym_info.get("digits", 5) if sym_info else 5
+    # ── Get symbol info for contract specs ────────────────────────
+    sym_info = await asyncio.to_thread(provider.get_symbol_info, req.symbol)
+    point = sym_info.get("point", default_point) if sym_info else default_point
+    digits = sym_info.get("digits", default_digits) if sym_info else default_digits
+    contract_size = sym_info.get("trade_contract_size", default_contract_size) if sym_info else default_contract_size
 
     config = BacktestConfig(
         symbol=req.symbol,
@@ -315,28 +368,27 @@ async def run_backtest(req: BacktestRequest, request: Request):
         use_spread_from_data=req.use_spread_from_data,
         point=point,
         digits=digits,
+        contract_size=contract_size,
     )
 
-    # Get strategy
+    # ── Get strategy ──────────────────────────────────────────────
     registry = auto_discover_strategies()
     if req.strategy_name not in registry:
         raise HTTPException(status_code=404, detail=f"Strategy '{req.strategy_name}' not found")
 
     strategy_cls = registry[req.strategy_name]
     strategy = strategy_cls(settings=req.settings)
-    # Inject point for SL/TP calculations
-    strategy._point = point
 
-    # Pre-fetch required HTF data if strategy defines it
+    # ── Pre-fetch required HTF data ───────────────────────────────
     htf_data = {}
     required_tfs = getattr(strategy_cls, "required_timeframes", [])
     if required_tfs:
         for rtf in required_tfs:
-            if rtf == req.timeframe: 
+            if rtf == req.timeframe:
                 continue
             try:
                 htf_df = await asyncio.to_thread(
-                    mt5.fetch_ohlcv,
+                    provider.fetch_ohlcv,
                     symbol=req.symbol,
                     timeframe=rtf,
                     date_from=date_from,

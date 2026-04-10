@@ -99,16 +99,37 @@
 /* ═══ SIGNALS LOG (Left Pane) ═══════════════════════════════ */
 .signals-log { display: flex; flex-direction: column; gap: var(--sp-2); }
 .sig-entry {
-    display: flex; align-items: center; gap: var(--sp-2);
+    display: flex; flex-direction: column; gap: 0;
     padding: var(--sp-2) var(--sp-3); border-radius: var(--r-sm);
     background: var(--bg-tertiary); font-size: var(--fs-xs);
-    animation: fadeIn 0.3s ease;
+    animation: fadeIn 0.3s ease; cursor: pointer;
+    transition: background var(--t-fast);
 }
-.sig-entry .badge { flex-shrink: 0; }
-.sig-entry-info { flex: 1; overflow: hidden; }
+.sig-entry:hover { background: var(--bg-hover); }
+.sig-entry-header {
+    display: flex; align-items: center; gap: var(--sp-2); width: 100%;
+}
+.sig-entry-header .badge { flex-shrink: 0; }
+.sig-entry-info { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
 .sig-entry-pair { font-weight: 600; color: var(--text-1); }
 .sig-entry-time { font-size: var(--fs-2xs); color: var(--text-3); }
 .sig-entry-price { font-family: var(--ff-mono); font-weight: 600; font-size: var(--fs-xs); }
+
+/* Status Badges */
+.sig-entry-status { font-size: var(--fs-2xs); font-weight: 700; padding: 2px 6px; border-radius: var(--r-xs); }
+.sig-status-run { background: #2563eb22; color: #60a5fa; border: 1px solid #2563eb55; }
+.sig-status-tp { background: #16a34a22; color: #4ade80; border: 1px solid #16a34a55; }
+.sig-status-sl { background: #dc262622; color: #f87171; border: 1px solid #dc262655; }
+
+/* Expanded Details */
+.sig-entry-details {
+    display: none; padding-top: var(--sp-2); margin-top: var(--sp-2);
+    border-top: 1px dashed var(--border-2); width: 100%;
+}
+.sig-entry.expanded .sig-entry-details { display: flex; flex-direction: column; gap: 4px; }
+.sig-detail-row { display: flex; justify-content: space-between; font-size: var(--fs-2xs); }
+.sig-detail-row span:first-child { color: var(--text-3); }
+.sig-detail-row span:last-child { color: var(--text-1); font-weight: 500; }
 
 /* ═══ DEPLOY TRADES PANEL ═══════════════════════════════════ */
 
@@ -300,162 +321,129 @@
     100% { box-shadow: 0 0 0 0 transparent; border-color: var(--border-1); }
 }
 
-/* ═══ SCANNER CONTENT WRAPPER (Charts + Signal Panel) ═══════ */
-.scanner-content-wrapper {
-    display: flex;
-    gap: var(--sp-3);
-    min-height: 0;
-    flex: 1;
-}
-.scanner-charts-area {
-    flex: 1;
-    min-width: 0;
-    overflow: auto;
-}
-
-/* ═══ SIGNAL LIST PANEL (right sidebar in scanner) ══════════ */
-.scanner-signals-panel {
-    width: 280px;
-    min-width: 240px;
-    max-width: 320px;
-    background: var(--bg-card);
-    border: 1px solid var(--border-1);
-    border-radius: var(--r-md);
+/* ── Strategy Upload Panel ────────────────────────────────── */
+.strat-upload-body {
     display: flex;
     flex-direction: column;
-    overflow: hidden;
-    flex-shrink: 0;
+    gap: 0;
+    padding: var(--sp-4);
 }
-.signals-panel-header {
+
+.info-banner {
+    display: flex;
+    gap: var(--sp-3);
+    background: color-mix(in srgb, var(--accent) 8%, var(--surface-2));
+    border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+    border-radius: var(--radius-md);
+    padding: var(--sp-3) var(--sp-4);
+    margin-bottom: var(--sp-4);
+}
+.info-banner-icon { font-size: 1.4rem; flex-shrink: 0; }
+.info-banner-title { font-size: 0.85rem; font-weight: 600; color: var(--text-1); margin-bottom: 3px; }
+.info-banner-text { font-size: 0.8rem; color: var(--text-2); }
+.info-banner-text code {
+    background: var(--surface-3);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-family: var(--font-mono, monospace);
+    font-size: 0.78rem;
+}
+
+.upload-drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius-md);
+    padding: var(--sp-6) var(--sp-4);
+    text-align: center;
+    transition: border-color 0.2s ease, background 0.2s ease;
+    cursor: pointer;
+    background: var(--surface-1);
+}
+.upload-drop-zone:hover {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 5%, var(--surface-1));
+}
+.upload-drop-zone.drag-over {
+    border-color: var(--accent);
+    border-style: solid;
+    background: color-mix(in srgb, var(--accent) 10%, var(--surface-1));
+}
+.upload-icon { font-size: 2rem; margin-bottom: var(--sp-2); }
+.upload-text { font-size: 0.9rem; color: var(--text-1); margin-bottom: 4px; }
+.upload-text code {
+    font-family: var(--font-mono, monospace);
+    background: var(--surface-3);
+    padding: 1px 5px;
+    border-radius: 3px;
+}
+.upload-sub { font-size: 0.8rem; color: var(--text-3); margin-bottom: var(--sp-2); }
+
+.uploaded-strat-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    padding: var(--sp-2) var(--sp-3);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    margin-bottom: var(--sp-1);
+    gap: var(--sp-2);
+}
+.uploaded-strat-info { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.uploaded-strat-name { font-size: 0.875rem; font-weight: 500; color: var(--text-1); }
+.uploaded-strat-file { font-size: 0.75rem; color: var(--text-3); font-family: var(--font-mono, monospace); }
+.uploaded-strat-actions { display: flex; gap: var(--sp-1); flex-shrink: 0; }
+
+/* Strategy guide */
+.strat-guide { border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; }
+.strat-guide-title {
     padding: var(--sp-3) var(--sp-4);
-    border-bottom: 1px solid var(--border-1);
-    background: rgba(255,255,255,0.02);
-}
-.signals-panel-title {
-    font-size: var(--fs-xs);
-    font-weight: 700;
+    font-size: 0.85rem;
+    font-weight: 500;
     color: var(--text-2);
-    letter-spacing: 0.02em;
+    cursor: pointer;
+    background: var(--surface-2);
+    list-style: none;
+    user-select: none;
 }
-.signals-panel-count {
-    font-size: var(--fs-2xs);
-    font-weight: 700;
-    font-family: var(--ff-mono);
-    background: var(--accent);
-    color: var(--bg-0);
-    padding: 1px 8px;
-    border-radius: 999px;
-    min-width: 20px;
-    text-align: center;
+.strat-guide-title::-webkit-details-marker { display: none; }
+.strat-guide-title::before { content: "▶ "; font-size: 0.7rem; }
+details[open] .strat-guide-title::before { content: "▼ "; }
+.strat-guide-body { padding: var(--sp-4); background: var(--surface-1); }
+.strat-guide-section { margin-bottom: var(--sp-4); }
+.strat-guide-section strong { font-size: 0.82rem; color: var(--text-1); display: block; margin-bottom: var(--sp-2); }
+.code-block {
+    background: var(--surface-3, #1a1a2e);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: var(--sp-3);
+    font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', monospace);
+    font-size: 0.75rem;
+    line-height: 1.5;
+    color: var(--text-1);
+    overflow-x: auto;
+    white-space: pre;
 }
-.signals-panel-list {
-    flex: 1;
-    overflow-y: auto;
-    padding: var(--sp-2);
+.guide-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
     display: flex;
     flex-direction: column;
     gap: 4px;
 }
-
-/* ── Individual Signal Entry ──────────────────────────────── */
-.signal-list-entry {
-    background: rgba(255,255,255,0.02);
-    border: 1px solid var(--border-1);
-    border-radius: var(--r-sm);
-    padding: 8px 10px;
-    transition: all var(--t-fast);
-    border-left: 3px solid transparent;
+.guide-list li {
+    font-size: 0.82rem;
+    color: var(--text-2);
+    padding: 3px 0;
+    padding-left: var(--sp-3);
+    border-left: 2px solid var(--border);
 }
-.signal-list-entry:hover {
-    background: rgba(255,255,255,0.04);
-    border-color: var(--border-2);
-}
-.signal-list-entry.sig-buy {
-    border-left-color: var(--long);
-}
-.signal-list-entry.sig-sell {
-    border-left-color: var(--short);
-}
-
-.signal-list-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: var(--fs-2xs);
-}
-.signal-list-dir {
-    font-weight: 800;
-    font-size: 11px;
-    padding: 1px 6px;
+.guide-list li code {
+    background: var(--surface-3);
+    padding: 1px 4px;
     border-radius: 3px;
-    letter-spacing: 0.04em;
-    min-width: 32px;
-    text-align: center;
-}
-.signal-list-dir.buy {
-    background: rgba(34, 197, 94, 0.15);
-    color: var(--long);
-}
-.signal-list-dir.sell {
-    background: rgba(239, 68, 68, 0.15);
-    color: var(--short);
-}
-.signal-list-tf {
-    font-family: var(--ff-mono);
-    font-weight: 600;
-    color: var(--accent);
-    font-size: 10px;
-    background: rgba(99, 102, 241, 0.1);
-    padding: 1px 5px;
-    border-radius: 3px;
-}
-.signal-list-price {
-    font-family: var(--ff-mono);
-    font-weight: 600;
-    color: var(--text-1);
-    font-size: 11px;
-    flex: 1;
-    text-align: right;
-}
-.signal-list-time {
-    color: var(--text-3);
-    font-size: 10px;
-    white-space: nowrap;
+    font-family: var(--font-mono, monospace);
+    font-size: 0.78rem;
+    color: var(--accent, #7c6af7);
 }
 
-.signal-list-meta {
-    display: flex;
-    gap: 12px;
-    margin-top: 4px;
-    font-size: 10px;
-    font-family: var(--ff-mono);
-    color: var(--text-3);
-}
-.signal-list-sl {
-    color: var(--short);
-    opacity: 0.7;
-}
-.signal-list-tp {
-    color: var(--long);
-    opacity: 0.7;
-}
-
-/* ── Scrollbar for signal list ────────────────────────────── */
-.signals-panel-list::-webkit-scrollbar { width: 4px; }
-.signals-panel-list::-webkit-scrollbar-track { background: transparent; }
-.signals-panel-list::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 4px; }
-
-/* ── Responsive: stack on small screens ───────────────────── */
-@media (max-width: 900px) {
-    .scanner-content-wrapper {
-        flex-direction: column;
-    }
-    .scanner-signals-panel {
-        width: 100%;
-        max-width: none;
-        max-height: 250px;
-    }
-}

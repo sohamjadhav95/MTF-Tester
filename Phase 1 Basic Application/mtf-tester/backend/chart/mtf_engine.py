@@ -71,9 +71,6 @@ class MTFLiveEngine:
         self._rolling_df: Dict[str, pd.DataFrame] = {}
         self._HISTORY_BARS = 300
 
-        # Track which TFs have already had on_start() called in live mode
-        self._started_tfs: set = set()
-
         self._running = False
         self._ws_running = True
         self._ws_threads = []
@@ -539,16 +536,12 @@ class MTFLiveEngine:
 
             log.info(f"LIVE [{tf}] time={current_time} bars_fetched={bars_to_fetch}")
 
-            # Call on_start() only once per TF in live mode.
-            # get_historical_context() already called it; for live we call it
-            # once after the rolling_df is first populated to ensure cache is fresh.
+            # Re-call on_start() so cache is recomputed on updated rolling data
             strategy = self.strategies[tf]
-            if tf not in self._started_tfs:
-                try:
-                    strategy.on_start(df)
-                    self._started_tfs.add(tf)
-                except Exception as e:
-                    log.warning(f"on_start failed [{tf}]: {e}")
+            try:
+                strategy.on_start(df)
+            except Exception:
+                pass
 
             try:
                 raw_signal = strategy.on_bar(current_idx, df)
