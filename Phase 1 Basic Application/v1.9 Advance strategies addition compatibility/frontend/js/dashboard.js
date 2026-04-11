@@ -18,6 +18,7 @@ let _expandedState = { chart: null, candles: null, watchId: null };
 let _mt5Symbols = [];
 let _signalWs = null;       // Global signal WebSocket
 let _globalIndicators = {};  // Tracks globally-applied indicators: type → settings
+let _renderedSignalIds = new Set(); // Dedup: track displayed signal IDs
 
 document.addEventListener('DOMContentLoaded', () => {
     if (!guardAuth()) return;
@@ -580,15 +581,24 @@ async function handleLaunchScanner() {
             symbol,
             timeframes,
             strategyName: strategy,
+            signals: [],  // Store all signals for late-added charts
         };
 
         // Create nav item + signal panel for this scanner
         createScannerNavAndPanel(scannerId, _activeScanners[scannerId]);
 
-        // Historical signals already published to SignalBus by backend
-        // They'll arrive via the global signal WS
+        // Load historical signals from API response into panel + chart markers
         const signals = data.historical_signals || [];
         showToast(`✓ Scanner "${name}" started — ${signals.length} historical signals loaded`, 'success');
+
+        // Store historical signals and pre-populate scanner panel
+        _activeScanners[scannerId].signals = [...signals];
+        for (const sig of signals) {
+            addSignalToScannerPanel(sig);
+        }
+
+        // Inject historical signals as markers on matching charts
+        _addHistoricalSignalMarkersToCharts(signals);
 
         // Update active strategies list
         refreshActiveStrategies();
@@ -710,6 +720,10 @@ function connectGlobalSignalWS() {
 function handleGlobalSignalMsg(msg) {
     if (msg.type === 'signal') {
         const sig = msg.data;
+
+        // Deduplicate: skip if already rendered from API historical response
+        if (sig.id && _renderedSignalIds.has(sig.id)) return;
+
         // Route signal to scanner's full panel
         addSignalToScannerPanel(sig);
 
@@ -843,17 +857,12 @@ function addSignalToScannerPanel(sig) {
         }
     }
 
-    // If no scanner found, create an orphan nav+panel
-    if (!scannerId) {
-        scannerId = `orphan-${stratName.replace(/\s+/g, '-').toLowerCase()}`;
-        if (!document.getElementById(`nav-scanner-${scannerId}`)) {
-            createScannerNavAndPanel(scannerId, {
-                name: stratName,
-                strategyName: stratName,
-                symbol: sig.symbol || '—',
-                timeframes: sig.timeframe ? [sig.timeframe] : [],
-            });
-        }
+    // If no scanner found, ignore — don't create orphan panels
+    if (!scannerId) return;
+
+    // Store live signal in scanner's signal store for late-added charts
+    if (_activeScanners[scannerId] && _activeScanners[scannerId].signals) {
+        _activeScanners[scannerId].signals.push(sig);
     }
 
     const signalsBody = document.getElementById(`scanner-signals-${scannerId}`);
@@ -879,6 +888,9 @@ function addSignalToScannerPanel(sig) {
     else if (status === 'SL HIT') statusCls = 'sl';
 
     const elId = `global-sig-${sig.id || Date.now()}`;
+
+    // Track rendered signal ID for deduplication
+    if (sig.id) _renderedSignalIds.add(sig.id);
     const row = document.createElement('div');
     row.className = 'scanner-signal-row';
     row.id = elId;
@@ -971,6 +983,9 @@ async function handleAddWatchChart() {
         // Apply global indicators to new chart
         applyGlobalIndicatorsToChart(watchId);
 
+        // Inject signals from already-running scanners as chart markers
+        _injectExistingSignalsToChart(watchId, symbol, tf);
+
         // Connect WS
         startWatchWS(watchId);
 
@@ -983,6 +998,75 @@ async function handleAddWatchChart() {
         showToast(`Failed to add chart: ${err.message}`, 'error');
     } finally {
         setLoading(btn, false, '+ Add Chart');
+    }
+}
+
+/**
+ * Add a single signal as a marker to a specific chart instance.
+ * Reusable for both live signals and historical signal injection.
+ */
+function _addSignalMarkerToChart(watchId, sig) {
+    const inst = _chartInstances[watchId];
+    if (!inst || !inst.candleSeries) return;
+
+    const stratLabel = sig.strategy ? `${sig.strategy}: ${sig.direction}` : sig.direction;
+    const ts = _toChartTs(sig.bar_time || sig.time);
+
+    // Deduplicate: skip if a marker with same time + text already exists
+    if (!inst.markers) inst.markers = [];
+    const exists = inst.markers.some(m => m.time === ts && m.text === stratLabel);
+    if (exists) return;
+
+    const marker = {
+        time: ts,
+        position: sig.direction === 'BUY' ? 'belowBar' : 'aboveBar',
+        color: sig.direction === 'BUY' ? '#22c55e' : '#ef4444',
+        shape: sig.direction === 'BUY' ? 'arrowUp' : 'arrowDown',
+        text: stratLabel,
+    };
+    inst.markers.push(marker);
+    inst.markers.sort((a, b) => a.time - b.time);
+    try { inst.candleSeries.setMarkers(inst.markers); } catch(e) {}
+}
+
+/**
+ * Inject a batch of historical signals as markers onto matching charts.
+ * Matches signals to charts by symbol + timeframe.
+ */
+/**
+ * Inject existing signals from all active scanners onto a newly added chart.
+ * Solves: strategy started first, chart added later.
+ */
+function _injectExistingSignalsToChart(watchId, symbol, tf) {
+    const inst = _chartInstances[watchId];
+    if (!inst || !inst.candleSeries) return;
+
+    for (const [sid, sc] of Object.entries(_activeScanners)) {
+        if (!sc.signals || sc.signals.length === 0) continue;
+        const matching = sc.signals.filter(sig =>
+            sig.symbol === symbol && sig.timeframe === tf
+        );
+        for (const sig of matching) {
+            _addSignalMarkerToChart(watchId, sig);
+        }
+    }
+}
+
+function _addHistoricalSignalMarkersToCharts(signals) {
+    if (!signals || signals.length === 0) return;
+
+    // Match signals to existing charts by symbol+timeframe
+    for (const [watchId, w] of Object.entries(_watchCharts)) {
+        const inst = _chartInstances[watchId];
+        if (!inst || !inst.candleSeries) continue;
+
+        const matchingSignals = signals.filter(sig =>
+            sig.symbol === w.symbol && sig.timeframe === w.tf
+        );
+
+        for (const sig of matchingSignals) {
+            _addSignalMarkerToChart(watchId, sig);
+        }
     }
 }
 
@@ -1289,18 +1373,7 @@ function handleWatchMsg(watchId, msg) {
     if (msg.type === 'signal') {
         const sig = msg.data;
         if (inst) {
-            const stratLabel = sig.strategy ? `${sig.strategy}: ${sig.direction}` : sig.direction;
-            const marker = {
-                time: _toChartTs(sig.bar_time || sig.time),
-                position: sig.direction === 'BUY' ? 'belowBar' : 'aboveBar',
-                color: sig.direction === 'BUY' ? '#22c55e' : '#ef4444',
-                shape: sig.direction === 'BUY' ? 'arrowUp' : 'arrowDown',
-                text: stratLabel,
-            };
-            if (!inst.markers) inst.markers = [];
-            inst.markers.push(marker);
-            inst.markers.sort((a, b) => a.time - b.time);
-            try { inst.candleSeries.setMarkers(inst.markers); } catch(e) {}
+            _addSignalMarkerToChart(watchId, sig);
 
             // Glow animation
             const cell = document.getElementById(`watch-cell-${watchId}`);

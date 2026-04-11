@@ -828,32 +828,13 @@ function renderGlobalIndicatorChips() {
 // ═══ INDICATOR CHIPS BAR ═══════════════════════════════════════════
 
 function renderIndicatorChips(watchId) {
+    // Per-chart chips disabled — indicators are managed globally.
+    // The global indicator bar in the Charts panel header handles display.
     const chipBar = document.getElementById(`indicator-chips-${watchId}`);
-    if (!chipBar) return;
-
-    const state = _indicatorState[watchId];
-    if (!state || Object.keys(state.indicators).length === 0) {
+    if (chipBar) {
         chipBar.style.display = 'none';
         chipBar.innerHTML = '';
-        _resizeChartWithPanes(watchId);
-        return;
     }
-
-    chipBar.style.display = 'flex';
-    chipBar.innerHTML = Object.entries(state.indicators).map(([indId, ind]) => {
-        const catalog = getCatalogEntry(ind.type);
-        const label = _getIndicatorLabel(ind);
-        const color = ind.settings.color || ind.settings.macdColor || catalog?.defaultSettings?.color || '#2196F3';
-
-        return `<div class="indicator-chip" data-indid="${indId}">
-            <span class="indicator-chip-dot" style="background:${color};"></span>
-            <span class="indicator-chip-label">${label}</span>
-            <button class="indicator-chip-gear" onclick="event.stopPropagation(); openIndicatorSettings('${watchId}', '${indId}')" title="Settings">⚙</button>
-            <button class="indicator-chip-remove" onclick="event.stopPropagation(); apiRemoveIndicator('${watchId}', '${indId}')" title="Remove">×</button>
-        </div>`;
-    }).join('');
-
-    _resizeChartWithPanes(watchId);
 }
 
 function _getIndicatorLabel(ind) {

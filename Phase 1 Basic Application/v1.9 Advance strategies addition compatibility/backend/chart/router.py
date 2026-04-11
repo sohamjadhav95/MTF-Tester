@@ -471,11 +471,9 @@ async def start_scanner(req: MTFStartRequest, request: Request):
     # Start live updates (polling or WS streams) in background
     asyncio.create_task(engine.start_live_only())
 
-    # Publish historical signals to SignalBus
-    from signals.bus import SignalBus
-    bus = SignalBus.get()
-    for sig in hist_signals:
-        await bus.publish(sig)
+    # Historical signals are returned in the API response.
+    # Frontend handles panel population + chart marker injection directly.
+    # No need to publish to SignalBus (which would cause duplicates).
 
     log.info(f"Scanner started | id={scanner_id} | symbol={req.symbol} | tfs={req.timeframes}")
 

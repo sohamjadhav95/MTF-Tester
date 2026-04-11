@@ -375,7 +375,14 @@ class MTFLiveEngine:
             if self.start_time_dt:
                 start_idx = 0
             else:
-                start_idx = max(0, len(df) - 50)
+                # Scan enough bars to cover ~4 days of historical signals
+                tf_bars_4d = {
+                    "M1": 5760, "M3": 1920, "M5": 1152, "M15": 384,
+                    "M30": 192, "H1": 96, "H4": 24, "H6": 16,
+                    "H8": 12, "H12": 8, "D1": 4, "W1": 1,
+                }
+                lookback = tf_bars_4d.get(tf, 200)
+                start_idx = max(0, len(df) - lookback)
 
             for i in range(start_idx, len(df)):
                 bar = df.iloc[i]
