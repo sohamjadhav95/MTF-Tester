@@ -70,6 +70,14 @@ class WatchStartRequest(BaseModel):
     timeframe: str
     provider: Literal["mt5", "binance"] = "mt5"
 
+# ── Chart Indicators ───────────────────────────────────────────────────
+class IndicatorAddRequest(BaseModel):
+    type: str               # sma, ema, bb, vwap, rsi, macd, volume
+    settings: dict = {}     # indicator-specific params (merged with defaults)
+
+class IndicatorUpdateRequest(BaseModel):
+    settings: dict          # updated params (merged with existing)
+
 # ── Orders ─────────────────────────────────────────────────────────────
 class OrderRequest(BaseModel):
     symbol: str

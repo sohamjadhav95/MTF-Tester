@@ -313,12 +313,12 @@
     animation: glowSell 1.5s ease-out;
 }
 @keyframes glowBuy {
-    0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); border-color: var(--long); }
-    100% { box-shadow: 0 0 0 0 transparent; border-color: var(--border-1); }
+    0% { box-shadow: inset 0 0 12px 2px rgba(34, 197, 94, 0.3); }
+    100% { box-shadow: inset 0 0 0 0 transparent; }
 }
 @keyframes glowSell {
-    0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); border-color: var(--short); }
-    100% { box-shadow: 0 0 0 0 transparent; border-color: var(--border-1); }
+    0% { box-shadow: inset 0 0 12px 2px rgba(239, 68, 68, 0.3); }
+    100% { box-shadow: inset 0 0 0 0 transparent; }
 }
 
 /* ── Strategy Upload Panel ────────────────────────────────── */
@@ -501,17 +501,30 @@ details[open] .strat-guide-title::before { content: "▼ "; }
 /* ── Watch Chart Grid ─────────────────────────────────────── */
 .watch-chart-grid {
     display: grid;
-    gap: var(--sp-3);
+    gap: 1px;
     flex: 1;
     overflow: hidden;
-    padding: var(--sp-3);
+    padding: 0;
     min-height: 0;
+    background: var(--border-1);
 }
 
+/* TradingView-style grid layouts */
 .watch-chart-grid.cols-1 { grid-template-columns: 1fr; grid-template-rows: 1fr; }
 .watch-chart-grid.cols-2 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; }
 .watch-chart-grid.cols-3 { grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr; }
 .watch-chart-grid.cols-4 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+.watch-chart-grid.cols-5 {
+    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+}
+.watch-chart-grid.cols-5 .chart-cell:last-child {
+    grid-column: 2;
+}
+.watch-chart-grid.cols-6 {
+    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+}
 
 /* ═══ ACTIVE STRATEGIES LIST ═══════════════════════════════ */
 
@@ -568,3 +581,377 @@ details[open] .strat-guide-title::before { content: "▼ "; }
     to { transform: rotate(360deg); }
 }
 
+
+/* ═══ CHART INDICATORS ═══════════════════════════════════════════════ */
+
+/* ── Indicator Modal Overlay ──────────────────────────────────── */
+.indicator-modal-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0, 0, 0, 0.75);
+    z-index: 1100; display: none;
+    align-items: center; justify-content: center;
+    backdrop-filter: blur(6px);
+    animation: fadeIn 0.2s ease;
+}
+.indicator-modal-overlay.open { display: flex; }
+
+.indicator-modal {
+    width: min(480px, 90vw);
+    max-height: 70vh;
+    background: var(--bg-card);
+    border: 1px solid var(--border-2);
+    border-radius: var(--r-lg);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5),
+                0 0 0 1px rgba(99, 102, 241, 0.08);
+}
+
+/* ── Modal Header ─────────────────────────────────────────────── */
+.indicator-modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: var(--sp-3) var(--sp-4);
+    border-bottom: 1px solid var(--border-1);
+    background: var(--bg-secondary);
+    flex-shrink: 0;
+}
+.indicator-modal-title {
+    font-size: var(--fs-md); font-weight: 700; margin: 0;
+}
+.indicator-modal-close {
+    width: 28px; height: 28px; border-radius: var(--r-sm);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; color: var(--text-3); cursor: pointer;
+    background: transparent; border: 1px solid transparent;
+    transition: all var(--t-fast);
+}
+.indicator-modal-close:hover {
+    background: var(--short-bg); color: var(--short);
+    border-color: var(--short);
+}
+
+/* ── Search ───────────────────────────────────────────────────── */
+.indicator-search-wrap {
+    padding: var(--sp-3) var(--sp-4) var(--sp-2);
+    flex-shrink: 0;
+}
+.indicator-search {
+    width: 100%;
+    padding: 8px 12px 8px 34px;
+    background: var(--bg-input);
+    border: 1px solid var(--border-1);
+    border-radius: var(--r-sm);
+    color: var(--text-1);
+    font-size: var(--fs-sm);
+    outline: none;
+    transition: border-color var(--t-fast);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%236b7280' viewBox='0 0 24 24'%3E%3Cpath d='M15.5 14h-.79l-.28-.27A6.471 6.471 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: 10px center;
+    background-size: 16px;
+}
+.indicator-search:focus { border-color: var(--accent); }
+.indicator-search::placeholder { color: var(--text-3); }
+
+/* ── Category Tabs ────────────────────────────────────────────── */
+.indicator-cat-tabs {
+    display: flex; gap: 1px;
+    padding: 0 var(--sp-4) var(--sp-2);
+    flex-shrink: 0;
+}
+.indicator-cat-tab {
+    padding: 4px 12px; border-radius: var(--r-xs);
+    font-size: var(--fs-2xs); font-weight: 600; color: var(--text-3);
+    cursor: pointer; transition: all var(--t-fast);
+    white-space: nowrap; text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+.indicator-cat-tab:hover { color: var(--text-2); }
+.indicator-cat-tab.active {
+    background: var(--accent-muted); color: var(--accent);
+}
+
+/* ── Indicator List ───────────────────────────────────────────── */
+.indicator-list {
+    flex: 1; overflow-y: auto;
+    padding: var(--sp-2) var(--sp-4) var(--sp-3);
+}
+.indicator-list-item {
+    display: flex; align-items: center; gap: var(--sp-3);
+    padding: var(--sp-2) var(--sp-3);
+    border-radius: var(--r-sm);
+    cursor: pointer;
+    transition: background var(--t-fast);
+    border: 1px solid transparent;
+    margin-bottom: 2px;
+}
+.indicator-list-item:hover {
+    background: var(--bg-hover);
+    border-color: var(--border-1);
+}
+.indicator-list-icon {
+    font-size: 18px; width: 28px; text-align: center; flex-shrink: 0;
+}
+.indicator-list-info {
+    display: flex; flex-direction: column; flex: 1; min-width: 0;
+}
+.indicator-list-name {
+    font-weight: 700; font-size: var(--fs-sm); color: var(--text-1);
+}
+.indicator-list-fullname {
+    font-size: var(--fs-2xs); color: var(--text-3);
+}
+.indicator-list-category {
+    font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em;
+    flex-shrink: 0;
+}
+.indicator-list-add {
+    padding: 3px 10px; font-size: var(--fs-2xs); font-weight: 700;
+    flex-shrink: 0; opacity: 0;
+    transition: opacity var(--t-fast);
+}
+.indicator-list-item:hover .indicator-list-add { opacity: 1; }
+.indicator-list-empty {
+    text-align: center; padding: var(--sp-6);
+    color: var(--text-3); font-size: var(--fs-sm);
+}
+
+
+/* ── Indicator Chips Bar ──────────────────────────────────────── */
+.indicator-chips-bar {
+    display: flex; align-items: center; gap: 4px;
+    padding: 3px var(--sp-3);
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-1);
+    flex-shrink: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+.indicator-chips-bar::-webkit-scrollbar { display: none; }
+
+.indicator-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 6px 2px 4px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-1);
+    border-radius: var(--r-sm);
+    font-size: 10px; font-weight: 600;
+    color: var(--text-2);
+    white-space: nowrap;
+    transition: all var(--t-fast);
+    cursor: default;
+}
+.indicator-chip:hover {
+    border-color: var(--border-2);
+    background: var(--bg-hover);
+}
+
+.indicator-chip-dot {
+    width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+}
+.indicator-chip-label {
+    font-family: var(--ff-mono); letter-spacing: -0.02em;
+}
+
+.indicator-chip-gear,
+.indicator-chip-remove {
+    width: 14px; height: 14px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; cursor: pointer; border: none; background: none;
+    color: var(--text-3); border-radius: 2px;
+    transition: all var(--t-fast);
+    padding: 0;
+    line-height: 1;
+}
+.indicator-chip-gear:hover { color: var(--accent); background: var(--accent-muted); }
+.indicator-chip-remove:hover { color: var(--short); background: var(--short-bg); }
+
+
+/* ── Indicator Settings Panel ─────────────────────────────────── */
+.indicator-settings-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 1200; display: none;
+    align-items: center; justify-content: center;
+    backdrop-filter: blur(3px);
+    animation: fadeIn 0.15s ease;
+}
+.indicator-settings-overlay.open { display: flex; }
+
+.indicator-settings-panel {
+    width: min(360px, 85vw);
+    background: var(--bg-card);
+    border: 1px solid var(--border-2);
+    border-radius: var(--r-md);
+    overflow: hidden;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+}
+
+.ind-settings-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: var(--sp-3) var(--sp-4);
+    border-bottom: 1px solid var(--border-1);
+    background: var(--bg-secondary);
+}
+.ind-settings-title {
+    font-size: var(--fs-sm); font-weight: 700;
+}
+.ind-settings-close {
+    width: 24px; height: 24px; border-radius: var(--r-xs);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; color: var(--text-3); cursor: pointer;
+    background: transparent; border: none;
+    transition: all var(--t-fast);
+}
+.ind-settings-close:hover {
+    background: var(--short-bg); color: var(--short);
+}
+
+.ind-settings-body {
+    padding: var(--sp-3) var(--sp-4);
+    display: flex; flex-direction: column; gap: var(--sp-2);
+    max-height: 50vh; overflow-y: auto;
+}
+
+.ind-settings-row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: var(--sp-3);
+}
+.ind-settings-label {
+    font-size: var(--fs-xs); font-weight: 500; color: var(--text-2);
+    white-space: nowrap;
+}
+.ind-settings-input {
+    width: 100px; text-align: right;
+    padding: 4px 8px; font-size: var(--fs-xs);
+    height: 28px;
+}
+
+.ind-color-wrap {
+    display: flex; align-items: center; gap: var(--sp-2);
+}
+.ind-settings-color {
+    width: 28px; height: 28px; padding: 0; border: 1px solid var(--border-1);
+    border-radius: var(--r-xs); cursor: pointer;
+    background: transparent;
+}
+.ind-settings-color::-webkit-color-swatch-wrapper { padding: 2px; }
+.ind-settings-color::-webkit-color-swatch { border: none; border-radius: 2px; }
+.ind-color-hex {
+    font-size: var(--fs-2xs); font-family: var(--ff-mono);
+    color: var(--text-3);
+}
+
+.ind-settings-footer {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: var(--sp-3) var(--sp-4);
+    border-top: 1px solid var(--border-1);
+    background: var(--bg-secondary);
+}
+
+
+/* ── Separate Pane Container ──────────────────────────────────── */
+.chart-indicator-pane {
+    flex-shrink: 0;
+    border-top: 1px solid var(--border-1);
+    background: var(--bg-card);
+    overflow: hidden;
+}
+.chart-pane-label {
+    font-size: 9px; font-weight: 700; color: var(--text-3);
+    text-transform: uppercase; letter-spacing: 0.08em;
+    padding: 2px var(--sp-3);
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-1);
+}
+.chart-pane-canvas {
+    width: 100%; height: 80px;
+    position: relative;
+}
+
+
+/* ═══ SCANNER SIGNAL PANEL (Main Area) ═════════════════════════════ */
+
+.scanner-panel-meta {
+    font-size: var(--fs-2xs);
+    color: var(--text-3);
+    font-weight: 500;
+}
+
+.scanner-signal-panel-body {
+    padding: 0 !important;
+    overflow: hidden;
+}
+
+.scanner-signals-table {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.scanner-signals-header {
+    display: grid;
+    grid-template-columns: 90px 110px 80px 100px 90px 90px 90px 1fr;
+    gap: var(--sp-2);
+    padding: var(--sp-2) var(--sp-4);
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-1);
+    font-size: var(--fs-2xs);
+    font-weight: 700;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    flex-shrink: 0;
+}
+
+.scanner-signals-body {
+    flex: 1;
+    overflow-y: auto;
+    scrollbar-width: thin;
+}
+
+.scanner-signal-row {
+    display: grid;
+    grid-template-columns: 90px 110px 80px 100px 90px 90px 90px 1fr;
+    gap: var(--sp-2);
+    padding: var(--sp-2) var(--sp-4);
+    border-bottom: 1px solid var(--border-1);
+    font-size: var(--fs-xs);
+    align-items: center;
+    transition: background var(--t-fast);
+    animation: fadeIn 0.2s ease;
+}
+.scanner-signal-row:hover {
+    background: var(--bg-hover);
+}
+
+.scanner-signals-empty {
+    text-align: center;
+    padding: var(--sp-6);
+    color: var(--text-3);
+    font-size: var(--fs-sm);
+    font-style: italic;
+}
+
+/* ═══ GLOBAL INDICATOR BAR (Charts Panel) ═══════════════════════════ */
+
+.global-indicator-bar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px var(--sp-3);
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-1);
+    flex-shrink: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+.global-indicator-bar::-webkit-scrollbar { display: none; }
+
+/* ── Expanded Indicator Pane (inside chart modal) ────────────── */
+.expanded-indicator-pane {
+    flex-shrink: 0;
+    border-top: 1px solid var(--border-1);
+    background: var(--bg-card);
+    overflow: hidden;
+}

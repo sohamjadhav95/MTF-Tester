@@ -153,8 +153,8 @@
 
 /* ── Multi-Chart Grid ──────────────────────────────────────── */
 .chart-grid {
-    display: grid; gap: var(--sp-3); flex: 1; overflow: hidden;
-    padding: var(--sp-3); min-height: 0;
+    display: grid; gap: 1px; flex: 1; overflow: hidden;
+    padding: 0; min-height: 0; background: var(--border-1);
 }
 .chart-grid.cols-1 { grid-template-columns: 1fr; grid-template-rows: 1fr; }
 .chart-grid.cols-2 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; }
@@ -162,18 +162,23 @@
 .chart-grid.cols-4 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
 
 .chart-cell {
-    background: var(--bg-card); border: 1px solid var(--border-1);
-    border-radius: var(--r-md); overflow: hidden;
+    background: var(--bg-card);
+    overflow: hidden;
     display: flex; flex-direction: column; min-height: 0;
+    min-width: 0;
 }
 .chart-cell-header {
     display: flex; align-items: center; justify-content: space-between;
-    padding: var(--sp-2) var(--sp-3); background: var(--bg-secondary);
+    padding: var(--sp-1) var(--sp-3); background: var(--bg-secondary);
     border-bottom: 1px solid var(--border-1); flex-shrink: 0;
+    height: 32px; min-height: 32px;
 }
 .chart-cell-tf { font-size: var(--fs-xs); font-weight: 700; color: var(--accent); }
 .chart-cell-price { font-family: var(--ff-mono); font-size: var(--fs-sm); font-weight: 600; }
-.chart-cell-body { flex: 1; position: relative; min-height: 0; overflow: hidden; }
+.chart-cell-body {
+    flex: 1; position: relative; min-height: 0; overflow: hidden;
+    min-height: 80px;
+}
 .chart-cell-signal {
     position: absolute; bottom: var(--sp-2); right: var(--sp-2);
     z-index: 5;
