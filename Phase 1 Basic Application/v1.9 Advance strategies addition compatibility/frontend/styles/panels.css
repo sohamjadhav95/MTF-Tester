@@ -447,3 +447,124 @@ details[open] .strat-guide-title::before { content: "▼ "; }
     color: var(--accent, #7c6af7);
 }
 
+/* ═══ WATCHLIST CHARTS PANEL ═══════════════════════════════════ */
+
+/* ── Add‑Chart Bar ────────────────────────────────────────── */
+.watch-add-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    padding: var(--sp-3) var(--sp-4);
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-1);
+    flex-shrink: 0;
+    flex-wrap: wrap;
+}
+
+.form-input-sm {
+    padding: 5px 10px;
+    font-size: var(--fs-xs);
+    height: 30px;
+}
+
+/* ── Watch TF Chips (smaller, single‑select) ──────────────── */
+.watch-tf-chips {
+    display: flex;
+    gap: 2px;
+}
+
+.tf-chip-sm {
+    padding: 3px 8px;
+    border-radius: var(--r-xs);
+    font-size: 10px;
+    font-weight: 700;
+    cursor: pointer;
+    border: 1px solid var(--border-1);
+    background: var(--bg-input);
+    color: var(--text-3);
+    transition: all var(--t-fast);
+    user-select: none;
+    letter-spacing: 0.04em;
+}
+
+.tf-chip-sm:hover {
+    border-color: var(--border-2);
+    color: var(--text-2);
+}
+
+.tf-chip-sm.selected {
+    background: var(--accent-muted);
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+/* ── Watch Chart Grid ─────────────────────────────────────── */
+.watch-chart-grid {
+    display: grid;
+    gap: var(--sp-3);
+    flex: 1;
+    overflow: hidden;
+    padding: var(--sp-3);
+    min-height: 0;
+}
+
+.watch-chart-grid.cols-1 { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+.watch-chart-grid.cols-2 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; }
+.watch-chart-grid.cols-3 { grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr; }
+.watch-chart-grid.cols-4 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+
+/* ═══ ACTIVE STRATEGIES LIST ═══════════════════════════════ */
+
+.active-strat-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--sp-3) var(--sp-4);
+    background: var(--bg-card);
+    border: 1px solid var(--border-1);
+    border-radius: var(--r-md);
+    margin-bottom: var(--sp-2);
+    transition: border-color var(--t-fast);
+}
+
+.active-strat-row:hover {
+    border-color: var(--border-2);
+}
+
+.active-strat-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.active-strat-name {
+    font-weight: 700;
+    font-size: var(--fs-sm);
+    color: var(--text-1);
+}
+
+.active-strat-meta {
+    font-size: var(--fs-2xs);
+    color: var(--text-3);
+}
+
+.active-strat-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+}
+
+/* ── Spinner LG (for chart loading) ───────────────────────── */
+.spinner-lg {
+    width: 28px;
+    height: 28px;
+    border: 3px solid var(--border-1);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+

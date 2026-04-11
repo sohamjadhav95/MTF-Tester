@@ -36,6 +36,8 @@ from main.api_auth import router as auth_router
 from data_collector.router import router as data_router
 from chart.router import router as chart_router
 from order.router import router as order_router
+from watchlist.router import router as watchlist_router
+from signals.router import router as signals_router
 
 # ── App ────────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -60,10 +62,12 @@ app.add_middleware(
 )
 
 # ── Routers ────────────────────────────────────────────────────────────
-app.include_router(auth_router,     prefix="/api/auth",     tags=["auth"])
-app.include_router(data_router,     prefix="/api/data",     tags=["data"])
-app.include_router(chart_router,    prefix="/api/chart",    tags=["chart"])
-app.include_router(order_router,    prefix="/api/order",    tags=["order"])
+app.include_router(auth_router,       prefix="/api/auth",       tags=["auth"])
+app.include_router(data_router,       prefix="/api/data",       tags=["data"])
+app.include_router(chart_router,      prefix="/api/chart",      tags=["chart"])
+app.include_router(order_router,      prefix="/api/order",      tags=["order"])
+app.include_router(watchlist_router,  prefix="/api/watchlist",  tags=["watchlist"])
+app.include_router(signals_router,    prefix="/api/signals",    tags=["signals"])
 
 # ── Health ─────────────────────────────────────────────────────────────
 @app.get("/api/health")

@@ -301,5 +301,6 @@ class BinanceProvider(DataProvider):
         df["low"]    = df["low"].astype(float)
         df["close"]  = df["close"].astype(float)
         df["volume"] = df["volume"].astype(float)
+        df["spread"] = 0  # Binance futures: no spread
         
-        return df[["time", "open", "high", "low", "close", "volume"]]
+        return df[["time", "open", "high", "low", "close", "volume", "spread"]]

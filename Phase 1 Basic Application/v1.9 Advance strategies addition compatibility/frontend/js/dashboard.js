@@ -1,15 +1,23 @@
 /**
- * DASHBOARD.JS v2 — Navigation, MT5 connection, account info, dynamic strategy panels
- *                   Uses TradingView LightweightCharts for live candlestick rendering.
+ * DASHBOARD.JS v3 — Decoupled Architecture
+ *
+ * Three independent systems:
+ *  1. Watchlist Charts — independent live candlestick charts (no strategy dependency)
+ *  2. Strategy Scanner — headless signal generator (no chart rendering)
+ *  3. Signal Bus      — one-way broadcast: strategy → matching charts + signal list
+ *
+ * Uses TradingView LightweightCharts for live candlestick rendering.
  */
 
 // ── Global State ──────────────────────────────────────────────
 let _strategies = [];
-let _activeScanners = {};   // id → { ws, config, name }
-let _scannerIdCounter = 0;
-let _chartInstances = {};   // `${scannerId}-${tf}` → { chart, candleSeries, indicatorSeries, markers }
-let _expandedState = { chart: null, candles: null, tf: null, scannerId: null };
-let _mt5Symbols = [];       // [{name, description, spread, ...}] loaded from MT5
+let _activeScanners = {};   // scannerId → { config, name, autoTrade }
+let _watchCharts = {};      // watchId → { ws, symbol, tf, chartKey }
+let _chartInstances = {};   // watchId → { chart, candleSeries, markers }
+let _expandedState = { chart: null, candles: null, watchId: null };
+let _mt5Symbols = [];
+let _signalWs = null;       // Global signal WebSocket
+
 document.addEventListener('DOMContentLoaded', () => {
     if (!guardAuth()) return;
 
@@ -26,6 +34,8 @@ document.addEventListener('DOMContentLoaded', () => {
     pollAccountInfo();
     initDeployTrades();
     initStrategyUpload();
+    initWatchlistPanel();
+    connectGlobalSignalWS();
 
     // ── Logout ────────────────────────────────────────────────
     document.getElementById('logout-btn').addEventListener('click', async () => {
@@ -52,6 +62,11 @@ function switchPanel(panelId) {
     document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
     const panel = document.getElementById(`panel-${panelId}`);
     if (panel) panel.classList.add('active');
+
+    // Resize charts when switching to charts panel
+    if (panelId === 'charts') {
+        setTimeout(() => resizeAllWatchCharts(), 50);
+    }
 
     // Save state
     api('/api/auth/session', 'PUT', { last_panel: panelId }).catch(() => {});
@@ -163,7 +178,6 @@ async function loadMT5Symbols() {
         const data = await api('/api/data/symbols?group=*');
         _mt5Symbols = data.symbols || [];
         console.log(`Loaded ${_mt5Symbols.length} symbols from MT5`);
-        // Show the dropdown with initial symbols
         filterSymbolList();
     } catch (err) {
         console.error('Failed to load symbols:', err);
@@ -171,9 +185,9 @@ async function loadMT5Symbols() {
     }
 }
 
-function filterSymbolList() {
-    const input = document.getElementById('cfg-symbol');
-    const dropdown = document.getElementById('cfg-symbol-dropdown');
+function _renderSymbolDropdown(inputId, dropdownId, selectFn) {
+    const input = document.getElementById(inputId);
+    const dropdown = document.getElementById(dropdownId);
     if (!input || !dropdown) return;
 
     const q = input.value.trim().toLowerCase();
@@ -184,7 +198,6 @@ function filterSymbolList() {
         return;
     }
 
-    // Filter
     const filtered = _mt5Symbols.filter(s =>
         s.name.toLowerCase().includes(q) || (s.description || '').toLowerCase().includes(q)
     );
@@ -195,9 +208,8 @@ function filterSymbolList() {
         return;
     }
 
-    // Show max 40 results
     dropdown.innerHTML = filtered.slice(0, 40).map(s => `
-        <div class="sym-item ${input.value === s.name ? 'active' : ''}" onclick="selectSymbol('${s.name}')">
+        <div class="sym-item ${input.value === s.name ? 'active' : ''}" onclick="${selectFn}('${s.name}')">
             <span class="sym-name">${s.name}</span>
             <span class="sym-desc">${s.description || ''}</span>
         </div>
@@ -205,84 +217,46 @@ function filterSymbolList() {
     dropdown.classList.add('open');
 }
 
+function filterSymbolList() { _renderSymbolDropdown('cfg-symbol', 'cfg-symbol-dropdown', 'selectSymbol'); }
+function filterOrderSymbolList() { _renderSymbolDropdown('order-symbol', 'order-symbol-dropdown', 'selectOrderSymbol'); }
+function filterWatchSymbolList() { _renderSymbolDropdown('watch-symbol', 'watch-symbol-dropdown', 'selectWatchSymbol'); }
+
 function selectSymbol(name) {
-    const input = document.getElementById('cfg-symbol');
-    const dropdown = document.getElementById('cfg-symbol-dropdown');
-    if (input) input.value = name;
-    if (dropdown) dropdown.classList.remove('open');
+    document.getElementById('cfg-symbol').value = name;
+    document.getElementById('cfg-symbol-dropdown').classList.remove('open');
+}
+function selectOrderSymbol(name) {
+    document.getElementById('order-symbol').value = name;
+    document.getElementById('order-symbol-dropdown').classList.remove('open');
+}
+function selectWatchSymbol(name) {
+    document.getElementById('watch-symbol').value = name;
+    document.getElementById('watch-symbol-dropdown').classList.remove('open');
 }
 
 // Close symbol dropdowns when clicking outside
 document.addEventListener('click', (e) => {
-    // Scanner symbol dropdown
-    const cfgDropdown = document.getElementById('cfg-symbol-dropdown');
-    const cfgInput = document.getElementById('cfg-symbol');
-    if (cfgDropdown && !cfgDropdown.contains(e.target) && e.target !== cfgInput) {
-        cfgDropdown.classList.remove('open');
-    }
-    // Order symbol dropdown
-    const orderDropdown = document.getElementById('order-symbol-dropdown');
-    const orderInput = document.getElementById('order-symbol');
-    if (orderDropdown && !orderDropdown.contains(e.target) && e.target !== orderInput) {
-        orderDropdown.classList.remove('open');
-    }
+    ['cfg-symbol-dropdown', 'order-symbol-dropdown', 'watch-symbol-dropdown'].forEach(id => {
+        const dd = document.getElementById(id);
+        const inputId = id.replace('-dropdown', '');
+        const inp = document.getElementById(inputId);
+        if (dd && !dd.contains(e.target) && e.target !== inp) {
+            dd.classList.remove('open');
+        }
+    });
 });
 
 // Show dropdown when focusing on symbol inputs
 document.addEventListener('focusin', (e) => {
-    if (e.target && e.target.id === 'cfg-symbol') {
-        filterSymbolList();
-    }
-    if (e.target && e.target.id === 'order-symbol') {
-        filterOrderSymbolList();
-    }
+    if (e.target && e.target.id === 'cfg-symbol') filterSymbolList();
+    if (e.target && e.target.id === 'order-symbol') filterOrderSymbolList();
+    if (e.target && e.target.id === 'watch-symbol') filterWatchSymbolList();
 });
-
-// ═══ ORDER SYMBOL AUTOCOMPLETE ═══════════════════════════════
-function filterOrderSymbolList() {
-    const input = document.getElementById('order-symbol');
-    const dropdown = document.getElementById('order-symbol-dropdown');
-    if (!input || !dropdown) return;
-
-    const q = input.value.trim().toLowerCase();
-
-    if (_mt5Symbols.length === 0) {
-        dropdown.innerHTML = '<div class="sym-empty">Connect to MT5 to load symbols</div>';
-        dropdown.classList.add('open');
-        return;
-    }
-
-    const filtered = _mt5Symbols.filter(s =>
-        s.name.toLowerCase().includes(q) || (s.description || '').toLowerCase().includes(q)
-    );
-
-    if (filtered.length === 0) {
-        dropdown.innerHTML = '<div class="sym-empty">No symbols match your search</div>';
-        dropdown.classList.add('open');
-        return;
-    }
-
-    dropdown.innerHTML = filtered.slice(0, 40).map(s => `
-        <div class="sym-item ${input.value === s.name ? 'active' : ''}" onclick="selectOrderSymbol('${s.name}')">
-            <span class="sym-name">${s.name}</span>
-            <span class="sym-desc">${s.description || ''}</span>
-        </div>
-    `).join('');
-    dropdown.classList.add('open');
-}
-
-function selectOrderSymbol(name) {
-    const input = document.getElementById('order-symbol');
-    const dropdown = document.getElementById('order-symbol-dropdown');
-    if (input) input.value = name;
-    if (dropdown) dropdown.classList.remove('open');
-}
 
 async function refreshAccountInfo() {
     try {
         const info = await api('/api/order/account');
         updateAccountDisplay(info);
-        // Also update positions count
         const posEl = document.getElementById('acc-positions');
         if (posEl && info.positions_count != null) posEl.textContent = info.positions_count;
         refreshPositions();
@@ -344,7 +318,7 @@ async function loadStrategies() {
         if (_strategies.length > 0) renderStratSettings(_strategies[0].name);
 
         // Timeframe chips
-        document.querySelectorAll('.tf-chip').forEach(chip => {
+        document.querySelectorAll('#cfg-timeframes .tf-chip').forEach(chip => {
             chip.addEventListener('click', () => {
                 chip.classList.toggle('selected');
             });
@@ -407,13 +381,12 @@ function initStrategyUpload() {
         fileInput.addEventListener('change', e => {
             if (e.target.files[0]) {
                 uploadStrategyFile(e.target.files[0]);
-                e.target.value = '';  // reset so same file can be re-uploaded
+                e.target.value = '';
             }
         });
     }
 
     if (dropZone) {
-        // Click on zone triggers file input (excluding the button itself)
         dropZone.addEventListener('click', e => {
             if (e.target.tagName !== 'LABEL' && e.target.tagName !== 'INPUT' &&
                 !e.target.closest('label')) {
@@ -443,7 +416,6 @@ function initStrategyUpload() {
         });
     }
 
-    // Load uploaded list when panel is opened
     refreshUploadedStrategies();
 }
 
@@ -451,7 +423,6 @@ async function uploadStrategyFile(file) {
     const statusDiv = document.getElementById('strat-upload-status');
     if (!statusDiv) return;
 
-    // Show uploading state
     statusDiv.style.display = 'block';
     statusDiv.innerHTML = `
         <div class="badge badge-muted" style="display:inline-flex; align-items:center; gap:6px;">
@@ -475,7 +446,6 @@ async function uploadStrategyFile(file) {
             throw new Error(data.detail || 'Upload failed');
         }
 
-        // Success
         statusDiv.innerHTML = `
             <div style="display:flex; align-items:center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3);
                         background: color-mix(in srgb, var(--long) 12%, var(--surface-2));
@@ -488,12 +458,9 @@ async function uploadStrategyFile(file) {
             </div>`;
 
         showToast(`Strategy "${data.strategy_name}" is now available`, 'success');
-
-        // Refresh the strategies dropdown and uploaded list
         await loadStrategies();
         await refreshUploadedStrategies();
 
-        // Clear status after 5 seconds
         setTimeout(() => {
             if (statusDiv) statusDiv.style.display = 'none';
         }, 5000);
@@ -568,7 +535,7 @@ async function deleteUploadedStrategy(filename, strategyName) {
     }
 }
 
-// ═══ LAUNCH SCANNER → CREATE DYNAMIC PANEL ════════════════════
+// ═══ HEADLESS SCANNER — LAUNCH & MANAGE ═══════════════════════
 async function handleLaunchScanner() {
     const name = document.getElementById('cfg-name').value.trim();
     const symbol = document.getElementById('cfg-symbol').value.trim();
@@ -581,18 +548,11 @@ async function handleLaunchScanner() {
     if (timeframes.length === 0) { showToast('Select at least one timeframe', 'warning'); return; }
     if (timeframes.length > 4) { showToast('Maximum 4 timeframes allowed', 'warning'); return; }
 
-    const id = `strat-${++_scannerIdCounter}`;
-    const config = { symbol, timeframes, strategy_name: strategy, settings: getStratSettings(), provider: 'mt5' };
+    const btn = document.getElementById('cfg-launch-btn');
+    setLoading(btn, true, 'Starting...');
 
-    // Create panel with loading spinners first
-    createDynamicPanel(id, name, config);
-    switchPanel(id);
+    const config = { symbol, timeframes, strategy_name: strategy, settings: { ...getStratSettings(), _name: name }, provider: 'mt5' };
 
-    // Update status to "Loading..."
-    const status = document.getElementById(`${id}-status`);
-    if (status) status.innerHTML = `<span class="dot dot-pending"></span><span>Loading data...</span>`;
-
-    // ── Step 1: REST call to fetch historical data ────────────
     try {
         const resp = await fetch('/api/chart/scanner/start', {
             method: 'POST',
@@ -611,439 +571,152 @@ async function handleLaunchScanner() {
         const data = await resp.json();
         const scannerId = data.scanner_id;
 
-        // Store scanner info with backend scanner_id
-        _activeScanners[id] = { ws: null, config: { ...config, _name: name }, signals: [], name, autoTrade: false, scannerId };
+        // Store scanner info
+        _activeScanners[scannerId] = {
+            config: { ...config, _name: name },
+            name,
+            autoTrade: false,
+            symbol,
+            timeframes,
+            strategyName: strategy,
+        };
 
-        // ── Step 2: Render historical charts immediately ──────
-        const candles = data.historical_candles || {};
-        const indicators = data.historical_indicators || {};
+        // Historical signals already published to SignalBus by backend
+        // They'll arrive via the global signal WS
         const signals = data.historical_signals || [];
+        showToast(`✓ Scanner "${name}" started — ${signals.length} historical signals loaded`, 'success');
 
-        for (const [tf, bars] of Object.entries(candles)) {
-            if (bars && bars.length > 0) {
-                initLWChart(id, tf, bars, indicators[tf] || {});
-            }
-        }
-
-        // Process historical signals (markers + badges)
-        const markersByTf = {};
-        for (const sig of signals) {
-            _activeScanners[id].signals.push(sig);
-            updateGlobalSignals(sig);
-            const sigEl = document.getElementById(`${id}-sig-${sig.timeframe}`);
-            if (sigEl) {
-                const cls = sig.direction === 'BUY' ? 'long' : 'short';
-                sigEl.innerHTML = `<span class="badge badge-${cls}">${sig.direction}</span>`;
-            }
-            if (!markersByTf[sig.timeframe]) markersByTf[sig.timeframe] = [];
-            markersByTf[sig.timeframe].push({
-                time: _toChartTs(sig.bar_time),
-                position: sig.direction === 'BUY' ? 'belowBar' : 'aboveBar',
-                color: sig.direction === 'BUY' ? '#22c55e' : '#ef4444',
-                shape: sig.direction === 'BUY' ? 'arrowUp' : 'arrowDown',
-                text: sig.direction,
-            });
-        }
-        for (const tf in markersByTf) {
-            const key = `${id}-${tf}`;
-            if (_chartInstances[key]) {
-                const markers = markersByTf[tf].sort((a, b) => a.time - b.time);
-                _chartInstances[key].markers = markers;
-                try { _chartInstances[key].candleSeries.setMarkers(markers); } catch(e) {}
-            }
-        }
-        if (signals.length > 0) updateSignalStrip(id);
-
-        showToast(`✓ Data loaded — ${Object.keys(candles).length} timeframes rendered`, 'success');
-
-        // ── Step 3: Connect WebSocket for live updates ────────
-        if (status) status.innerHTML = `<span class="dot dot-on"></span><span>Live</span>`;
-        startScannerWS(id, scannerId);
+        // Update active strategies list
+        refreshActiveStrategies();
+        refreshAutoTradeList();
 
     } catch (err) {
         console.error('Scanner start failed:', err);
-        if (status) status.innerHTML = `<span class="dot dot-off"></span><span>Error</span>`;
         showToast(`Scanner failed: ${err.message}`, 'error');
+    } finally {
+        setLoading(btn, false, '⚡ Launch Scanner');
     }
-
-    setTimeout(() => refreshAutoTradeList(), 500);
 }
 
-function createDynamicPanel(id, name, config) {
-    // ── Add Nav Item ──────────────────────────────────────────
-    const divider = document.getElementById('strat-divider');
-    divider.style.display = '';
+async function stopScanner(scannerId) {
+    const scanner = _activeScanners[scannerId];
+    const name = scanner ? scanner.name : scannerId;
 
-    const navList = document.getElementById('strat-nav-list');
-    const navItem = document.createElement('div');
-    navItem.className = 'nav-item';
-    navItem.dataset.panel = id;
-    navItem.innerHTML = `
-        <span class="nav-icon">📈</span>
-        <span class="nav-label">${name}</span>
-        <span class="nav-badge">${config.timeframes.length}TF</span>
-        <span class="nav-close" data-remove="${id}" title="Remove">✕</span>
-    `;
-    navItem.addEventListener('click', (e) => {
-        if (e.target.classList.contains('nav-close')) return;
-        switchPanel(id);
-    });
-    navList.appendChild(navItem);
-
-    // Close button
-    navItem.querySelector('.nav-close').addEventListener('click', (e) => {
-        e.stopPropagation();
-        removeScanner(id, name);
-    });
-
-    // ── Create Panel ──────────────────────────────────────────
-    const colClass = `cols-${Math.min(config.timeframes.length, 4)}`;
-    const panel = document.createElement('div');
-    panel.className = 'panel';
-    panel.id = `panel-${id}`;
-
-    panel.innerHTML = `
-        <div class="panel-header">
-            <div style="display:flex; align-items:center; gap: var(--sp-3);">
-                <span class="panel-header-title">${name}</span>
-                <span class="badge badge-info">${config.symbol}</span>
-                <span class="badge badge-muted">${config.strategy_name}</span>
-            </div>
-            <div class="panel-header-actions">
-                <div class="conn-pill" id="${id}-status">
-                    <span class="dot dot-pending"></span>
-                    <span>Connecting...</span>
-                </div>
-            </div>
-        </div>
-        <div class="signal-strip" id="${id}-strip">
-            <span style="color:var(--text-3);">Loading charts...</span>
-        </div>
-        <div class="chart-grid ${colClass}" id="${id}-charts">
-            ${config.timeframes.map(tf => `
-                <div class="chart-cell" id="${id}-cell-${tf}">
-                    <div class="chart-cell-header">
-                        <span class="chart-cell-tf">${tf}</span>
-                        <div style="display:flex; align-items:center; gap: 6px;">
-                            <span class="chart-cell-price mono" id="${id}-price-${tf}">—</span>
-                            <button class="chart-expand-btn" onclick="openExpandedChart('${id}', '${tf}')" title="Expand Chart">&#x26F6;</button>
-                        </div>
-                    </div>
-                    <div class="chart-cell-body" id="${id}-canvas-${tf}">
-                        <div class="empty-state" style="padding: 40px;"><div class="spinner-lg"></div></div>
-                    </div>
-                    <div class="chart-cell-signal" id="${id}-sig-${tf}"></div>
-                </div>
-            `).join('')}
-        </div>
-    `;
-
-    document.getElementById('dynamic-panels').appendChild(panel);
-}
-
-async function removeScanner(id, name) {
-    const ok = await showConfirm('Remove Scanner', `Stop and remove "${name}"?`);
+    const ok = await showConfirm('Stop Scanner', `Stop "${name}"? It will stop generating signals.`);
     if (!ok) return;
 
-    // Close WebSocket + stop backend scanner
-    if (_activeScanners[id]) {
-        const ws = _activeScanners[id].ws;
-        if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ action: 'stop' }));
-            ws.close();
-        }
-        // Stop backend scanner via REST
-        const scannerId = _activeScanners[id].scannerId;
-        if (scannerId) {
-            try {
-                await fetch('/api/chart/scanner/stop', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${Auth.getToken()}`,
-                    },
-                    body: JSON.stringify({ scanner_id: scannerId }),
-                });
-            } catch(e) {}
-        }
-        // Destroy LightweightCharts instances for this scanner
-        const config = _activeScanners[id].config;
-        if (config && config.timeframes) {
-            config.timeframes.forEach(tf => {
-                const key = `${id}-${tf}`;
-                if (_chartInstances[key]) {
-                    try { _chartInstances[key].chart.remove(); } catch(e) {}
-                    delete _chartInstances[key];
-                }
-            });
-        }
-        delete _activeScanners[id];
-    }
+    try {
+        await fetch('/api/chart/scanner/stop', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${Auth.getToken()}`,
+            },
+            body: JSON.stringify({ scanner_id: scannerId }),
+        });
+    } catch(e) {}
 
-    // Remove nav item
-    const nav = document.querySelector(`.nav-item[data-panel="${id}"]`);
-    if (nav) nav.remove();
-
-    // Remove panel
-    const panel = document.getElementById(`panel-${id}`);
-    if (panel) panel.remove();
-
-    // Hide divider if no more strategy panels
-    const navList = document.getElementById('strat-nav-list');
-    if (navList && navList.children.length === 0) {
-        document.getElementById('strat-divider').style.display = 'none';
-    }
-
-    // Switch to dashboard
-    switchPanel('dashboard');
-    showToast(`Scanner "${name}" removed`, 'info');
+    delete _activeScanners[scannerId];
+    refreshActiveStrategies();
+    refreshAutoTradeList();
+    showToast(`Scanner "${name}" stopped`, 'info');
 }
 
-// ═══ WEBSOCKET — LIVE UPDATES ONLY ═══════════════════════════
-function startScannerWS(id, scannerId) {
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${proto}://${location.host}/api/chart/ws/${scannerId}`);
+function refreshActiveStrategies() {
+    const container = document.getElementById('active-strategies-list');
+    if (!container) return;
 
-    if (_activeScanners[id]) {
-        _activeScanners[id].ws = ws;
+    const ids = Object.keys(_activeScanners);
+    if (ids.length === 0) {
+        container.innerHTML = `<div class="empty-state" style="padding: 24px;">
+            <div class="empty-state-desc">No active scanners. Launch a strategy above.</div>
+        </div>`;
+        return;
     }
 
-    ws.onopen = () => {
-        console.log(`WS connected for scanner ${scannerId}`);
+    container.innerHTML = ids.map(sid => {
+        const sc = _activeScanners[sid];
+        const autoOn = sc.autoTrade || false;
+        return `<div class="active-strat-row">
+            <div class="active-strat-info">
+                <div class="active-strat-name">${sc.name}</div>
+                <div class="active-strat-meta">${sc.symbol} · ${sc.strategyName} · ${sc.timeframes.join(', ')}</div>
+            </div>
+            <div class="active-strat-actions">
+                <span class="badge badge-success" style="font-size:9px;">LIVE</span>
+                <div class="auto-toggle-wrap">
+                    <label class="toggle-switch">
+                        <input type="checkbox" ${autoOn ? 'checked' : ''} data-scanner="${sid}" class="auto-trade-toggle-strat">
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <span class="auto-trade-status ${autoOn ? 'on' : 'off'}" style="font-size:9px;">${autoOn ? 'AUTO' : 'OFF'}</span>
+                </div>
+                <button class="btn btn-error btn-xs" onclick="stopScanner('${sid}')">Stop</button>
+            </div>
+        </div>`;
+    }).join('');
+
+    // Attach auto-trade toggle handlers
+    container.querySelectorAll('.auto-trade-toggle-strat').forEach(toggle => {
+        toggle.addEventListener('change', async function() {
+            const sid = this.dataset.scanner;
+            const on = this.checked;
+            if (on) {
+                const ok = await showConfirm('Enable Auto Trading', 'This scanner will automatically execute trades. Are you sure?');
+                if (!ok) { this.checked = false; return; }
+            }
+            if (_activeScanners[sid]) {
+                _activeScanners[sid].autoTrade = on;
+                const label = this.closest('.auto-toggle-wrap').querySelector('.auto-trade-status');
+                if (label) { label.textContent = on ? 'AUTO' : 'OFF'; label.className = `auto-trade-status ${on ? 'on' : 'off'}`; }
+                showToast(on ? 'Auto-trade enabled' : 'Auto-trade disabled', on ? 'success' : 'info');
+                refreshAutoTradeList();
+            }
+        });
+    });
+}
+
+// ═══ GLOBAL SIGNAL WEBSOCKET ══════════════════════════════════
+function connectGlobalSignalWS() {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    _signalWs = new WebSocket(`${proto}://${location.host}/api/signals/ws`);
+
+    _signalWs.onopen = () => {
+        console.log('Global signal WS connected');
     };
 
-    ws.onmessage = (event) => {
+    _signalWs.onmessage = (event) => {
         try {
             const msg = JSON.parse(event.data);
-            handleScannerMsg(id, msg);
-        } catch (e) { console.error('WS parse error:', e); }
+            handleGlobalSignalMsg(msg);
+        } catch (e) { console.error('Signal WS parse error:', e); }
     };
 
-    ws.onerror = () => {
-        console.warn('Scanner WS error — live updates may be delayed');
+    _signalWs.onerror = () => {
+        console.warn('Global signal WS error');
     };
 
-    ws.onclose = () => {
-        const status = document.getElementById(`${id}-status`);
-        if (status && _activeScanners[id]) {
-            status.innerHTML = `<span class="dot dot-off"></span><span>Reconnecting...</span>`;
-            // Auto-reconnect after 3 seconds
-            setTimeout(() => {
-                if (_activeScanners[id]) {
-                    startScannerWS(id, scannerId);
-                }
-            }, 3000);
-        }
+    _signalWs.onclose = () => {
+        console.log('Global signal WS disconnected — reconnecting in 3s');
+        setTimeout(connectGlobalSignalWS, 3000);
     };
 }
 
-function handleScannerMsg(id, msg) {
-    const scanner = _activeScanners[id];
-    if (!scanner) return;
-
-    // ── Historical: contains candles keyed by TF ─────────────
-    if (msg.type === 'historical') {
-        const candles = msg.data.candles || {};
-        const indicators = msg.data.indicators || {};
-
-        for (const [tf, bars] of Object.entries(candles)) {
-            if (bars && bars.length > 0) {
-                initLWChart(id, tf, bars, indicators[tf] || {});
-            }
-        }
-
-        // Process historical signals
-        const signals = msg.data.signals || [];
-        // Group markers by timeframe
-        const markersByTf = {};
-        for (const sig of signals) {
-            scanner.signals.push(sig);
-            updateGlobalSignals(sig);
-            const sigEl = document.getElementById(`${id}-sig-${sig.timeframe}`);
-            if (sigEl) {
-                const cls = sig.direction === 'BUY' ? 'long' : 'short';
-                sigEl.innerHTML = `<span class="badge badge-${cls}">${sig.direction}</span>`;
-            }
-            // Collect markers
-            if (!markersByTf[sig.timeframe]) markersByTf[sig.timeframe] = [];
-            markersByTf[sig.timeframe].push({
-                time: _toChartTs(sig.bar_time),
-                position: sig.direction === 'BUY' ? 'belowBar' : 'aboveBar',
-                color: sig.direction === 'BUY' ? '#22c55e' : '#ef4444',
-                shape: sig.direction === 'BUY' ? 'arrowUp' : 'arrowDown',
-                text: sig.direction,
-            });
-        }
-        // Apply markers to charts
-        for (const tf in markersByTf) {
-            const key = `${id}-${tf}`;
-            if (_chartInstances[key]) {
-                const markers = markersByTf[tf].sort((a, b) => a.time - b.time);
-                _chartInstances[key].markers = markers;
-                try { _chartInstances[key].candleSeries.setMarkers(markers); } catch(e) {}
-            }
-        }
-        if (signals.length > 0) updateSignalStrip(id);
-    }
-
-    // ── Bar updates (plural): array of {symbol, timeframe, bar}
-    if (msg.type === 'bar_updates') {
-        const updates = msg.data || [];
-        for (const upd of updates) {
-            const tf = upd.timeframe;
-            const bar = upd.bar;
-            if (!tf || !bar) continue;
-
-            const key = `${id}-${tf}`;
-            const inst = _chartInstances[key];
-            if (inst && inst.candleSeries) {
-                // Incremental update — no full re-render!
-                try {
-                    inst.candleSeries.update({
-                        time: _toChartTs(bar.time),
-                        open: bar.open,
-                        high: bar.high,
-                        low: bar.low,
-                        close: bar.close,
-                    });
-                } catch(e) { console.error('Chart update error:', e); }
-
-                // Also update expanded chart if it's viewing this tf
-                if (_expandedState.scannerId === id && _expandedState.tf === tf && _expandedState.candles) {
-                    try {
-                        _expandedState.candles.update({
-                            time: _toChartTs(bar.time),
-                            open: bar.open,
-                            high: bar.high,
-                            low: bar.low,
-                            close: bar.close,
-                        });
-                    } catch(e) {}
-                }
-            }
-            // Update price display
-            const priceEl = document.getElementById(`${id}-price-${tf}`);
-            if (priceEl) priceEl.textContent = fmtPrice(bar.close);
-        }
-    }
-
-    // ── Single bar update (legacy compat) ────────────────────
-    if (msg.type === 'bar_update') {
-        const bar = msg.data.bar || msg.data;
-        const tf = msg.data.timeframe || msg.timeframe;
-        if (tf && bar) {
-            const key = `${id}-${tf}`;
-            const inst = _chartInstances[key];
-            if (inst && inst.candleSeries) {
-                try {
-                    inst.candleSeries.update({
-                        time: _toChartTs(bar.time),
-                        open: bar.open,
-                        high: bar.high,
-                        low: bar.low,
-                        close: bar.close,
-                    });
-                } catch(e) {}
-            }
-        }
-    }
-
-    // ── Signal ───────────────────────────────────────────────
+function handleGlobalSignalMsg(msg) {
     if (msg.type === 'signal') {
         const sig = msg.data;
-        scanner.signals.unshift(sig);
-        if (scanner.signals.length > 50) scanner.signals = scanner.signals.slice(0, 50);
-
-        // Update signal badge on chart cell
-        const sigEl = document.getElementById(`${id}-sig-${sig.timeframe}`);
-        if (sigEl) {
-            const cls = sig.direction === 'BUY' ? 'long' : 'short';
-            sigEl.innerHTML = `<span class="badge badge-${cls}">${sig.direction}</span>`;
-        }
-
-        // Add marker to chart
-        const key = `${id}-${sig.timeframe}`;
-        const inst = _chartInstances[key];
-        if (inst) {
-            const marker = {
-                time: _toChartTs(sig.bar_time),
-                position: sig.direction === 'BUY' ? 'belowBar' : 'aboveBar',
-                color: sig.direction === 'BUY' ? '#22c55e' : '#ef4444',
-                shape: sig.direction === 'BUY' ? 'arrowUp' : 'arrowDown',
-                text: sig.direction,
-            };
-            if (!inst.markers) inst.markers = [];
-            inst.markers.push(marker);
-            inst.markers.sort((a, b) => a.time - b.time);
-            try { inst.candleSeries.setMarkers(inst.markers); } catch(e) {}
-
-            // Glow animation on the chart cell
-            const cell = document.getElementById(`${id}-cell-${sig.timeframe}`);
-            if (cell) {
-                cell.classList.remove('chart-glow-buy', 'chart-glow-sell');
-                void cell.offsetWidth; // force reflow
-                cell.classList.add(sig.direction === 'BUY' ? 'chart-glow-buy' : 'chart-glow-sell');
-            }
-
-            // Update expanded chart markers if viewing this tf
-            if (_expandedState.scannerId === id && _expandedState.tf === sig.timeframe && _expandedState.candles) {
-                try { _expandedState.candles.setMarkers(inst.markers); } catch(e) {}
-            }
-        }
-
-        // Update signal strip
-        updateSignalStrip(id);
-
-        // Update global signals log
+        // Update sidebar signal list
         updateGlobalSignals(sig);
 
+        // Toast notification
         showToast(`${sig.direction} · ${sig.symbol} [${sig.timeframe}] @ ${fmtPrice(sig.price)}`,
             sig.direction === 'BUY' ? 'success' : 'error', 5000);
     }
 
-    // ── Price tick ───────────────────────────────────────────
-    if (msg.type === 'price') {
-        const tf = msg.data.timeframe;
-        const price = msg.data.price;
-        const priceEl = document.getElementById(`${id}-price-${tf}`);
-        if (priceEl) priceEl.textContent = fmtPrice(price);
-    }
-
-    // ── Trade Update ─────────────────────────────────────────
     if (msg.type === 'trade_update') {
         const update = msg.data;
-        const sigIdx = scanner.signals.findIndex(s => s.id === update.id);
-        if (sigIdx > -1) {
-            scanner.signals[sigIdx].status = update.status;
-            scanner.signals[sigIdx].close_time = update.close_time;
-            updateSignalStrip(id);
-        }
         updateGlobalSignalDOM(update);
     }
-
-    // ── Error ────────────────────────────────────────────────
-    if (msg.type === 'error') {
-        showToast(msg.data || 'Scanner error', 'error');
-    }
-}
-
-function updateSignalStrip(id) {
-    const scanner = _activeScanners[id];
-    if (!scanner) return;
-    const strip = document.getElementById(`${id}-strip`);
-    if (!strip) return;
-
-    const items = scanner.signals.slice(0, 8).map(s => {
-        const cls = s.direction === 'BUY' ? 'buy' : 'sell';
-        return `<div class="signal-strip-item ${cls}">
-            <span>${s.direction}</span>
-            <span class="mono">${s.timeframe}</span>
-            <span class="mono">${fmtPrice(s.price)}</span>
-            <span style="opacity:0.6;">${fmtTime(s.bar_time || s.time)}</span>
-        </div>`;
-    }).join('');
-
-    strip.innerHTML = items || '<span style="color:var(--text-3);">No signals yet</span>';
 }
 
 function updateGlobalSignals(sig) {
@@ -1052,7 +725,7 @@ function updateGlobalSignals(sig) {
 
     // Remove empty state
     const empty = log.querySelector('.empty-state-desc');
-    if (empty) empty.remove();
+    if (empty) { const emptyParent = empty.closest('.empty-state'); if (emptyParent) emptyParent.remove(); }
 
     const cls = sig.direction === 'BUY' ? 'long' : 'short';
     const status = sig.status || 'RUNNING';
@@ -1061,9 +734,10 @@ function updateGlobalSignals(sig) {
     if (status === 'TP HIT') statusCls = 'tp';
     else if (status === 'SL HIT') statusCls = 'sl';
 
+    const elId = `global-sig-${sig.id || Date.now()}`;
     const el = document.createElement('div');
     el.className = 'sig-entry';
-    el.id = `global-sig-${sig.id || Date.now()}`;
+    el.id = elId;
     el.innerHTML = `
         <div class="sig-entry-header" onclick="this.parentElement.classList.toggle('expanded')">
             <span class="badge badge-${cls}">${sig.direction}</span>
@@ -1071,14 +745,14 @@ function updateGlobalSignals(sig) {
                 <span class="sig-entry-pair">${sig.symbol} <span style="color:var(--text-3);">·</span> ${sig.timeframe}</span>
                 <span class="sig-entry-time">${fmtTime(sig.bar_time || sig.time)}</span>
             </div>
-            <div class="sig-entry-status sig-status-${statusCls}" id="${el.id}-status">${status}</div>
+            <div class="sig-entry-status sig-status-${statusCls}" id="${elId}-status">${status}</div>
             <span class="sig-entry-price">${fmtPrice(sig.price)}</span>
         </div>
         <div class="sig-entry-details">
             <div class="sig-detail-row"><span>Strategy</span> <span>${sig.strategy || '—'}</span></div>
             <div class="sig-detail-row"><span>Target SL</span> <span class="mono">${sig.sl != null ? fmtPrice(sig.sl) : 'None'}</span></div>
             <div class="sig-detail-row"><span>Target TP</span> <span class="mono">${sig.tp != null ? fmtPrice(sig.tp) : 'None'}</span></div>
-            <div class="sig-detail-row"><span>Close Time</span> <span id="${el.id}-close" class="mono">${sig.close_time ? fmtTime(sig.close_time) : '—'}</span></div>
+            <div class="sig-detail-row"><span>Close Time</span> <span id="${elId}-close" class="mono">${sig.close_time ? fmtTime(sig.close_time) : '—'}</span></div>
         </div>
     `;
     log.insertBefore(el, log.firstChild);
@@ -1105,35 +779,133 @@ function updateGlobalSignalDOM(update) {
     }
 }
 
-// ═══ LIGHTWEIGHT CHARTS — TIMESTAMP UTILITY ═══════════════════
-function _toChartTs(isoStr) {
-    if (!isoStr) return 0;
-    // Parse ISO string as-is (no forced UTC). Matches v1.5's _toTs.
-    return Math.floor(new Date(isoStr).getTime() / 1000);
+// ═══ WATCHLIST CHARTS (Independent) ═══════════════════════════
+
+function initWatchlistPanel() {
+    // TF chip selection for watchlist
+    document.querySelectorAll('#watch-tf-select .tf-chip-sm').forEach(chip => {
+        chip.addEventListener('click', () => {
+            // Single-select for watchlist
+            document.querySelectorAll('#watch-tf-select .tf-chip-sm').forEach(c => c.classList.remove('selected'));
+            chip.classList.add('selected');
+        });
+    });
 }
 
-function _getChartColors() {
-    return {
-        bg: '#0d1421',
-        text: '#94a3b8',
-        grid: '#1e2d42',
-        border: '#1e2d42',
-    };
-}
+async function handleAddWatchChart() {
+    const symbol = document.getElementById('watch-symbol').value.trim();
+    const tfChip = document.querySelector('#watch-tf-select .tf-chip-sm.selected');
+    const tf = tfChip ? tfChip.dataset.tf : null;
 
-// ═══ LIGHTWEIGHT CHARTS — INIT ════════════════════════════════
-function initLWChart(scannerId, tf, bars, indicatorData) {
-    const key = `${scannerId}-${tf}`;
-    const container = document.getElementById(`${scannerId}-canvas-${tf}`);
-    if (!container) return;
+    if (!symbol) { showToast('Enter a symbol', 'warning'); return; }
+    if (!tf) { showToast('Select a timeframe', 'warning'); return; }
 
-    // Destroy previous chart instance if exists
-    if (_chartInstances[key]) {
-        try { _chartInstances[key].chart.remove(); } catch(e) {}
-        delete _chartInstances[key];
+    // Check limit
+    if (Object.keys(_watchCharts).length >= 6) {
+        showToast('Maximum 6 charts allowed', 'warning');
+        return;
     }
 
-    // Clear loading spinner
+    // Check duplicate
+    for (const wid of Object.keys(_watchCharts)) {
+        const w = _watchCharts[wid];
+        if (w.symbol === symbol && w.tf === tf) {
+            showToast(`Chart for ${symbol} ${tf} already exists`, 'info');
+            return;
+        }
+    }
+
+    const btn = document.getElementById('watch-add-btn');
+    setLoading(btn, true, 'Adding...');
+
+    try {
+        const resp = await api('/api/watchlist/start', 'POST', { symbol, timeframe: tf, provider: 'mt5' });
+        const watchId = resp.watch_id;
+        const bars = resp.historical_bars || [];
+
+        _watchCharts[watchId] = { symbol, tf, ws: null };
+
+        // Render chart
+        renderWatchGrid();
+        if (bars.length > 0) {
+            initWatchChart(watchId, symbol, tf, bars);
+        }
+
+        // Connect WS
+        startWatchWS(watchId);
+
+        // Update badge
+        updateChartCountBadge();
+        document.getElementById('watch-symbol').value = '';
+        showToast(`Chart added: ${symbol} ${tf}`, 'success');
+
+    } catch (err) {
+        showToast(`Failed to add chart: ${err.message}`, 'error');
+    } finally {
+        setLoading(btn, false, '+ Add Chart');
+    }
+}
+
+function renderWatchGrid() {
+    const grid = document.getElementById('watch-chart-grid');
+    if (!grid) return;
+
+    const ids = Object.keys(_watchCharts);
+
+    if (ids.length === 0) {
+        grid.innerHTML = `<div class="empty-state" style="padding: 60px 24px;">
+            <div style="font-size: 40px; opacity: 0.15;">📈</div>
+            <div class="empty-state-desc">Add a symbol to start watching live charts</div>
+        </div>`;
+        grid.className = 'watch-chart-grid';
+        return;
+    }
+
+    // Set grid class based on count
+    const count = ids.length;
+    let colClass = 'cols-1';
+    if (count === 2) colClass = 'cols-2';
+    else if (count === 3) colClass = 'cols-3';
+    else if (count >= 4) colClass = 'cols-4';
+    grid.className = `watch-chart-grid ${colClass}`;
+
+    // Only add cells that don't exist yet
+    for (const wid of ids) {
+        if (document.getElementById(`watch-cell-${wid}`)) continue;
+        const w = _watchCharts[wid];
+        const cell = document.createElement('div');
+        cell.className = 'chart-cell';
+        cell.id = `watch-cell-${wid}`;
+        cell.innerHTML = `
+            <div class="chart-cell-header">
+                <div style="display:flex; align-items:center; gap:6px;">
+                    <span class="chart-cell-tf">${w.tf}</span>
+                    <span style="font-size:var(--fs-xs); color:var(--text-2); font-weight:600;">${w.symbol}</span>
+                </div>
+                <div style="display:flex; align-items:center; gap: 6px;">
+                    <span class="chart-cell-price mono" id="watch-price-${wid}">—</span>
+                    <button class="chart-expand-btn" onclick="openExpandedWatch('${wid}')" title="Expand Chart">&#x26F6;</button>
+                    <button class="chart-expand-btn" onclick="removeWatchChart('${wid}')" title="Remove Chart" style="color:var(--short);">✕</button>
+                </div>
+            </div>
+            <div class="chart-cell-body" id="watch-canvas-${wid}">
+                <div class="empty-state" style="padding: 40px;"><div class="spinner-lg"></div></div>
+            </div>
+        `;
+        grid.appendChild(cell);
+    }
+}
+
+function initWatchChart(watchId, symbol, tf, bars) {
+    const container = document.getElementById(`watch-canvas-${watchId}`);
+    if (!container) return;
+
+    // Destroy previous
+    if (_chartInstances[watchId]) {
+        try { _chartInstances[watchId].chart.remove(); } catch(e) {}
+        delete _chartInstances[watchId];
+    }
+
     container.innerHTML = '';
 
     const colors = _getChartColors();
@@ -1189,70 +961,208 @@ function initLWChart(scannerId, tf, bars, indicatorData) {
         console.error('Error setting candle data:', e);
     }
 
-    // Add indicator line series
-    const indicatorSeriesMap = {};
-    if (indicatorData && Object.keys(indicatorData).length > 0) {
-        const lineColors = ['#3b82f6', '#f59e0b', '#8b5cf6', '#06b6d4', '#ec4899', '#14b8a6'];
-        let colorIdx = 0;
-
-        for (const [indName, dataPoints] of Object.entries(indicatorData)) {
-            if (!dataPoints || dataPoints.length === 0) continue;
-
-            const line = chart.addLineSeries({
-                color: lineColors[colorIdx % lineColors.length],
-                lineWidth: 1,
-                title: indName,
-            });
-
-            const sortedPts = [...dataPoints]
-                .map(p => ({ time: _toChartTs(p.time), value: p.value }))
-                .sort((a, b) => a.time - b.time);
-
-            // Deduplicate
-            const uniquePts = [];
-            const ptSeen = new Set();
-            for (const pt of sortedPts) {
-                if (!ptSeen.has(pt.time)) {
-                    ptSeen.add(pt.time);
-                    uniquePts.push(pt);
-                }
-            }
-
-            try { line.setData(uniquePts); } catch(e) {}
-            indicatorSeriesMap[indName] = line;
-            colorIdx++;
-        }
-    }
-
-    // Store instance
-    _chartInstances[key] = {
+    _chartInstances[watchId] = {
         chart,
         candleSeries,
-        indicatorSeriesMap,
         markers: [],
+        symbol,
+        tf,
     };
 
     // Update price display
     if (uniqueBars.length > 0) {
         const lastClose = uniqueBars[uniqueBars.length - 1].close;
-        const priceEl = document.getElementById(`${scannerId}-price-${tf}`);
+        const priceEl = document.getElementById(`watch-price-${watchId}`);
         if (priceEl) priceEl.textContent = fmtPrice(lastClose);
     }
 }
 
+function startWatchWS(watchId) {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws = new WebSocket(`${proto}://${location.host}/api/watchlist/ws/${watchId}`);
+
+    if (_watchCharts[watchId]) {
+        _watchCharts[watchId].ws = ws;
+    }
+
+    ws.onopen = () => {
+        console.log(`Watchlist WS connected for ${watchId}`);
+    };
+
+    ws.onmessage = (event) => {
+        try {
+            const msg = JSON.parse(event.data);
+            handleWatchMsg(watchId, msg);
+        } catch (e) { console.error('Watch WS parse error:', e); }
+    };
+
+    ws.onerror = () => {
+        console.warn(`Watchlist WS error for ${watchId}`);
+    };
+
+    ws.onclose = () => {
+        if (_watchCharts[watchId]) {
+            setTimeout(() => {
+                if (_watchCharts[watchId]) {
+                    startWatchWS(watchId);
+                }
+            }, 3000);
+        }
+    };
+}
+
+function handleWatchMsg(watchId, msg) {
+    const inst = _chartInstances[watchId];
+
+    // ── Bar updates from WatchlistEngine
+    if (msg.type === 'bar_updates') {
+        const bars = msg.data || [];
+        for (const bar of bars) {
+            if (inst && inst.candleSeries) {
+                try {
+                    inst.candleSeries.update({
+                        time: _toChartTs(bar.time),
+                        open: bar.open,
+                        high: bar.high,
+                        low: bar.low,
+                        close: bar.close,
+                    });
+                } catch(e) {}
+            }
+            // Update price display
+            const priceEl = document.getElementById(`watch-price-${watchId}`);
+            if (priceEl) priceEl.textContent = fmtPrice(bar.close);
+
+            // Update expanded chart if viewing this watch
+            if (_expandedState.watchId === watchId && _expandedState.candles) {
+                try {
+                    _expandedState.candles.update({
+                        time: _toChartTs(bar.time),
+                        open: bar.open,
+                        high: bar.high,
+                        low: bar.low,
+                        close: bar.close,
+                    });
+                } catch(e) {}
+            }
+        }
+    }
+
+    // ── Signal from SignalBus (matched by symbol+timeframe)
+    if (msg.type === 'signal') {
+        const sig = msg.data;
+        if (inst) {
+            const marker = {
+                time: _toChartTs(sig.bar_time || sig.time),
+                position: sig.direction === 'BUY' ? 'belowBar' : 'aboveBar',
+                color: sig.direction === 'BUY' ? '#22c55e' : '#ef4444',
+                shape: sig.direction === 'BUY' ? 'arrowUp' : 'arrowDown',
+                text: sig.direction,
+            };
+            if (!inst.markers) inst.markers = [];
+            inst.markers.push(marker);
+            inst.markers.sort((a, b) => a.time - b.time);
+            try { inst.candleSeries.setMarkers(inst.markers); } catch(e) {}
+
+            // Glow animation
+            const cell = document.getElementById(`watch-cell-${watchId}`);
+            if (cell) {
+                cell.classList.remove('chart-glow-buy', 'chart-glow-sell');
+                void cell.offsetWidth;
+                cell.classList.add(sig.direction === 'BUY' ? 'chart-glow-buy' : 'chart-glow-sell');
+            }
+
+            // Update expanded chart markers
+            if (_expandedState.watchId === watchId && _expandedState.candles) {
+                try { _expandedState.candles.setMarkers(inst.markers); } catch(e) {}
+            }
+        }
+    }
+}
+
+async function removeWatchChart(watchId) {
+    const w = _watchCharts[watchId];
+    if (!w) return;
+
+    // Close WS
+    if (w.ws && w.ws.readyState === WebSocket.OPEN) {
+        w.ws.close();
+    }
+
+    // Stop backend
+    try {
+        await fetch('/api/watchlist/stop', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${Auth.getToken()}`,
+            },
+            body: JSON.stringify({ watch_id: watchId }),
+        });
+    } catch(e) {}
+
+    // Destroy chart
+    if (_chartInstances[watchId]) {
+        try { _chartInstances[watchId].chart.remove(); } catch(e) {}
+        delete _chartInstances[watchId];
+    }
+
+    // Remove from DOM
+    const cell = document.getElementById(`watch-cell-${watchId}`);
+    if (cell) cell.remove();
+
+    delete _watchCharts[watchId];
+    renderWatchGrid();
+    updateChartCountBadge();
+    showToast(`Chart removed: ${w.symbol} ${w.tf}`, 'info');
+}
+
+function updateChartCountBadge() {
+    const badge = document.getElementById('charts-count-badge');
+    if (badge) badge.textContent = `${Object.keys(_watchCharts).length} / 6`;
+}
+
+function resizeAllWatchCharts() {
+    for (const watchId in _chartInstances) {
+        const inst = _chartInstances[watchId];
+        const container = document.getElementById(`watch-canvas-${watchId}`);
+        if (container && inst.chart) {
+            try {
+                inst.chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
+            } catch(e) {}
+        }
+    }
+}
+
+// ═══ LIGHTWEIGHT CHARTS — TIMESTAMP UTILITY ═══════════════════
+function _toChartTs(isoStr) {
+    if (!isoStr) return 0;
+    let s = String(isoStr);
+    if (!s.endsWith('Z') && !s.includes('+') && !s.includes('-', 10)) {
+        s += 'Z';
+    }
+    return Math.floor(new Date(s).getTime() / 1000);
+}
+
+function _getChartColors() {
+    return {
+        bg: '#0d1421',
+        text: '#94a3b8',
+        grid: '#1e2d42',
+        border: '#1e2d42',
+    };
+}
+
 // ═══ CHART EXPAND MODAL ═══════════════════════════════════════
-function openExpandedChart(scannerId, tf) {
-    const key = `${scannerId}-${tf}`;
-    const inst = _chartInstances[key];
+function openExpandedWatch(watchId) {
+    const inst = _chartInstances[watchId];
     if (!inst) return;
 
     const modal = document.getElementById('chart-expand-modal');
     const container = document.getElementById('chart-modal-container');
     const title = document.getElementById('chart-modal-title');
-    const scanner = _activeScanners[scannerId];
-    const symbol = scanner ? scanner.config.symbol : '';
 
-    title.innerHTML = `${symbol} <span style="color: var(--accent); font-weight: 600;">${tf}</span>`;
+    title.innerHTML = `${inst.symbol} <span style="color: var(--accent); font-weight: 600;">${inst.tf}</span>`;
     container.innerHTML = '';
 
     const colors = _getChartColors();
@@ -1297,26 +1207,11 @@ function openExpandedChart(scannerId, tf) {
         try { candleSeries.setMarkers(inst.markers); } catch(e) {}
     }
 
-    // Clone indicators
-    if (inst.indicatorSeriesMap) {
-        for (const [indName, indSeries] of Object.entries(inst.indicatorSeriesMap)) {
-            try {
-                const line = chart.addLineSeries({
-                    color: indSeries.options().color,
-                    lineWidth: indSeries.options().lineWidth,
-                    title: indName,
-                });
-                line.setData(indSeries.data());
-            } catch(e) {}
-        }
-    }
-
     // Store expanded state for live updates
-    _expandedState = { chart, candles: candleSeries, tf, scannerId };
+    _expandedState = { chart, candles: candleSeries, watchId };
 
     modal.classList.add('open');
 
-    // Force resize after modal animation
     setTimeout(() => {
         chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
     }, 50);
@@ -1328,11 +1223,11 @@ function closeExpandedChart() {
 
     if (_expandedState.chart) {
         try { _expandedState.chart.remove(); } catch(e) {}
-        _expandedState = { chart: null, candles: null, tf: null, scannerId: null };
+        _expandedState = { chart: null, candles: null, watchId: null };
     }
 }
 
-// ── Bind chart modal close + window resize (runs immediately) ─
+// ── Bind chart modal close + window resize ────────────────────
 (function() {
     const closeBtn = document.getElementById('chart-modal-close');
     if (closeBtn) closeBtn.addEventListener('click', closeExpandedChart);
@@ -1344,18 +1239,7 @@ function closeExpandedChart() {
 
     // Handle window resize for all active charts
     window.addEventListener('resize', () => {
-        for (const key in _chartInstances) {
-            const inst = _chartInstances[key];
-            const parts = key.split('-');
-            const tf = parts[parts.length - 1];
-            const scannerId = parts.slice(0, -1).join('-');
-            const container = document.getElementById(`${scannerId}-canvas-${tf}`);
-            if (container && inst.chart) {
-                try {
-                    inst.chart.applyOptions({ width: container.clientWidth });
-                } catch(e) {}
-            }
-        }
+        resizeAllWatchCharts();
     });
 })();
 
@@ -1401,7 +1285,6 @@ function initDeployTrades() {
             if (!symbol) { showToast('Enter a symbol', 'warning'); return; }
             if (!volume || volume <= 0) { showToast('Enter a valid volume', 'warning'); return; }
 
-            // ── SAFETY: Confirmation Dialog ─────────────────────
             const dirLabel = direction.toUpperCase();
             const ok = await showConfirm(
                 'Confirm Order',
@@ -1467,7 +1350,6 @@ function initDeployTrades() {
     // ── Risk Guard ────────────────────────────────────────────
     const riskForm = document.getElementById('risk-guard-form');
     if (riskForm) {
-        // Load current risk state
         api('/api/order/risk').then(state => {
             document.getElementById('risk-enabled').checked = state.enabled;
             document.getElementById('risk-threshold').value = state.threshold_pct || 5;
@@ -1494,7 +1376,6 @@ function initDeployTrades() {
         });
     }
 
-    // ── Auto Trade: populate scanner list ─────────────────────
     refreshAutoTradeList();
 }
 
@@ -1508,19 +1389,19 @@ function refreshAutoTradeList() {
         return;
     }
 
-    container.innerHTML = ids.map(id => {
-        const sc = _activeScanners[id];
+    container.innerHTML = ids.map(sid => {
+        const sc = _activeScanners[sid];
         const cfg = sc.config;
-        const name = sc.name || id;
+        const name = sc.name || sid;
         const autoOn = sc.autoTrade || false;
         return `<div class="auto-scanner-row">
             <div class="auto-scanner-info">
                 <span class="auto-scanner-name">${name}</span>
-                <span class="auto-scanner-meta">${cfg.symbol} · ${cfg.strategy_name} · ${cfg.timeframes.join(', ')}</span>
+                <span class="auto-scanner-meta">${sc.symbol} · ${sc.strategyName} · ${sc.timeframes.join(', ')}</span>
             </div>
             <div class="auto-toggle-wrap">
                 <label class="toggle-switch">
-                    <input type="checkbox" ${autoOn ? 'checked' : ''} data-scanner="${id}" class="auto-trade-toggle">
+                    <input type="checkbox" ${autoOn ? 'checked' : ''} data-scanner="${sid}" class="auto-trade-toggle">
                     <span class="toggle-slider"></span>
                 </label>
                 <span class="auto-trade-status ${autoOn ? 'on' : 'off'}">${autoOn ? 'AUTO' : 'OFF'}</span>
@@ -1546,4 +1427,3 @@ function refreshAutoTradeList() {
         });
     });
 }
-

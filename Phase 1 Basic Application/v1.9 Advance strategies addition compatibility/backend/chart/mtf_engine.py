@@ -1,9 +1,13 @@
 """
-MTF Live Engine
-================
+MTF Live Engine — Headless Signal Generator
+=============================================
 Self-contained multi-timeframe live scanner.
 No module-level global state — engine is an instance per scanner session.
 Supports both MT5 (REST polling) and Binance (WebSocket streaming).
+
+After decoupling: this engine is a HEADLESS signal generator.
+It crunches data and publishes signals to the SignalBus.
+It does NOT send chart/candle/indicator data to any frontend.
 """
 
 import asyncio
@@ -35,6 +39,9 @@ class MTFLiveEngine:
     """
     Multi-timeframe live scanner engine.
     Self-contained — no global state. One instance per active scan.
+
+    After decoupling: publishes signals to SignalBus instead of broadcasting
+    chart data. The engine is a headless signal generator.
     """
 
     def __init__(
@@ -63,9 +70,12 @@ class MTFLiveEngine:
         self.strategy_cls = self.strategy_registry[strategy_name]
 
         # Instantiate a strategy instance for each timeframe
+        # Strip internal/meta keys (underscore-prefixed like _name) before
+        # passing to strategy constructors — those are metadata, not config.
+        strategy_settings = {k: v for k, v in settings.items() if not k.startswith("_")}
         self.strategies = {}
         for tf in timeframes:
-            self.strategies[tf] = self.strategy_cls(settings=settings)
+            self.strategies[tf] = self.strategy_cls(settings=strategy_settings)
 
         self.active_data_tfs = list(set(timeframes + getattr(self.strategy_cls, "required_timeframes", [])))
 
@@ -99,7 +109,7 @@ class MTFLiveEngine:
         return self._running
 
     async def _push(self, payload: dict):
-        """Send payload via async broadcast callback."""
+        """Send payload via async broadcast callback (status messages only)."""
         if self.broadcast_callback:
             try:
                 if asyncio.iscoroutinefunction(self.broadcast_callback):
@@ -114,19 +124,16 @@ class MTFLiveEngine:
         self._running = True
         log.info(f"MTF scanner started | symbol={self.symbol} | tfs={self.timeframes} | strategy={self.strategy_name}")
 
-        # Fetch historical context
+        # Fetch historical context (signals only — no candles/indicators sent)
         try:
-            hist_candles, hist_signals, hist_indicators = await asyncio.to_thread(
+            hist_signals = await asyncio.to_thread(
                 self.get_historical_context
             )
-            await self._push({
-                "type": "historical",
-                "data": {
-                    "candles": hist_candles,
-                    "signals": hist_signals,
-                    "indicators": hist_indicators,
-                }
-            })
+            # Publish historical signals to SignalBus
+            from signals.bus import SignalBus
+            bus = SignalBus.get()
+            for sig in hist_signals:
+                await bus.publish(sig)
         except Exception as e:
             log.error(f"Historical fetch failed: {e}")
             await self._push({"type": "error", "data": str(e)})
@@ -159,17 +166,19 @@ class MTFLiveEngine:
 
     async def _mt5_poll_loop(self):
         """Poll MT5 for new bars every 5 seconds."""
+        from signals.bus import SignalBus
+        bus = SignalBus.get()
+
         while self._running:
             try:
-                signals, updates = await asyncio.to_thread(self.process_latest_data)
-                if updates:
-                    await self._push({"type": "bar_updates", "data": updates})
+                signals, _updates = await asyncio.to_thread(self.process_latest_data)
                 for sig in signals:
                     msg_type = sig.get("type", "signal")
-                    await self._push({"type": msg_type, "data": sig})
                     if msg_type == "signal":
+                        await bus.publish(sig)
                         log.info(f"Signal | {sig['direction']} {sig['symbol']} [{sig['timeframe']}] @ {sig['price']}")
                     elif msg_type == "trade_update":
+                        await bus.publish_trade_update(sig)
                         log.info(f"Trade Update | {sig['status']} {sig['symbol']} [{sig['timeframe']}]")
             except Exception as e:
                 log.error(f"Poll error: {e}")
@@ -268,6 +277,8 @@ class MTFLiveEngine:
                         if self.last_signal_time[tf] != bar_time:
                             self.last_signal_time[tf] = bar_time
                             sig = {
+                                "id": str(uuid.uuid4()),
+                                "type": "signal",
                                 "symbol": self.symbol,
                                 "timeframe": tf,
                                 "strategy": self.strategy_name,
@@ -275,19 +286,44 @@ class MTFLiveEngine:
                                 "price": bar["close"],
                                 "sl": sl,
                                 "tp": tp,
-                                "time": datetime.now(timezone.utc).isoformat(),
+                                "time": bar_time_str,
                                 "bar_time": bar_time_str,
+                                "status": "RUNNING",
                             }
+                            # Publish to SignalBus from sync context
+                            try:
+                                loop = asyncio.get_event_loop()
+                                if loop.is_running():
+                                    asyncio.run_coroutine_threadsafe(
+                                        self._publish_signal(sig), loop
+                                    )
+                                else:
+                                    asyncio.run(self._publish_signal(sig))
+                            except Exception:
+                                pass
                             log.info(f"Signal | {signal_dir} {self.symbol} [{tf}] @ {bar['close']}")
                 except Exception:
                     pass
 
+    async def _publish_signal(self, sig: dict):
+        """Helper to publish signal to SignalBus."""
+        from signals.bus import SignalBus
+        await SignalBus.get().publish(sig)
+
     # ── Historical Context ──────────────────────────────────────
 
-    def get_historical_context(self) -> Tuple[Dict[str, List[Dict]], List[Dict], Dict[str, Dict[str, List[Dict]]]]:
-        historical_candles = {}
+    def get_historical_context(self) -> List[Dict]:
+        """
+        Fetch historical data, run strategy over it, return signals only.
+
+        After decoupling: returns ONLY historical_signals (list of dicts).
+        No candles, no indicators — charts handle their own data independently.
+
+        The engine still maintains rolling DataFrames internally for strategy
+        evaluation and still calls on_start/on_bar/get_indicator_data for strategy
+        logic — indicators are used for strategy computation, just not sent to frontend.
+        """
         historical_signals = []
-        historical_indicators = {}
 
         # 1. Fetch raw data for all dependencies (primary + required HTF)
         for tf in self.active_data_tfs:
@@ -304,28 +340,12 @@ class MTFLiveEngine:
             if not df.empty:
                 self._rolling_df[tf] = df.copy()
 
-        # 2. Process charts and logic only for requested charting timeframes
+        # 2. Process strategy logic for requested timeframes
         for tf in self.timeframes:
             if tf not in self._rolling_df:
                 continue
             
             df = self._rolling_df[tf]
-            candles = []
-            for _, row in df.iterrows():
-                time_val = row["time"]
-                time_str = time_val.isoformat() if hasattr(time_val, "isoformat") else str(time_val)
-                candles.append({
-                    "time": time_str,
-                    "open": float(row["open"]),
-                    "high": float(row["high"]),
-                    "low": float(row["low"]),
-                    "close": float(row["close"]),
-                    "volume": int(row["volume"] if pd.notna(row["volume"]) else 0)
-                })
-            historical_candles[tf] = candles
-            if candles:
-                log.info(f"HIST [{tf}] first={candles[0]['time']} last={candles[-1]['time']} bars={len(candles)}")
-
             strategy = self.strategies[tf]
             
             # Prepare optional HTF data dict
@@ -346,24 +366,11 @@ class MTFLiveEngine:
                 except Exception as e:
                     log.warning(f"on_start failed [{tf}]: {e}")
 
-            # Calculate indicators AFTER on_start cache runs
+            # Calculate indicators for strategy logic (not sent to frontend)
             try:
-                ind_raw = strategy.get_indicator_data(df)
+                strategy.get_indicator_data(df)
             except (AttributeError, Exception):
-                ind_raw = {}
-
-            tf_indicators = {}
-            for name, points in ind_raw.items():
-                fmt_points = []
-                for idx, val in enumerate(points):
-                    if val is not None and not pd.isna(val):
-                        t = df.iloc[idx]["time"]
-                        fmt_points.append({
-                            "time": t.isoformat() if hasattr(t, "isoformat") else str(t),
-                            "value": val
-                        })
-                tf_indicators[name] = fmt_points
-            historical_indicators[tf] = tf_indicators
+                pass
 
             if self.start_time_dt:
                 start_idx = 0
@@ -395,8 +402,6 @@ class MTFLiveEngine:
                         t["status"] = hit_status
                         t["close_time"] = formatted_time
                         self.active_trades[tf].remove(t)
-                        # We don't emit historical trade_updates to live ws, we just modify the dictionary in-place
-                        # so the frontend receives them as correctly marked historical_signals on boot.
 
                 try:
                     raw_signal = strategy.on_bar(i, df)
@@ -426,11 +431,17 @@ class MTFLiveEngine:
 
         historical_signals.sort(key=lambda x: x["time"], reverse=True)
 
-        return historical_candles, historical_signals, historical_indicators
+        return historical_signals
 
     # ── REST Polling (MT5) ──────────────────────────────────────
 
     def process_latest_data(self) -> Tuple[List[Dict], List[Dict]]:
+        """
+        Process latest data from the provider.
+        Returns (signals, updates) where:
+          - signals: list of signal/trade_update dicts to publish to SignalBus
+          - updates: list of bar update dicts (kept for internal use, not sent to frontend)
+        """
         signals = []
         updates = []
 
@@ -463,7 +474,7 @@ class MTFLiveEngine:
                 if rtf in self._rolling_df and rtf != tf:
                     htf_data[rtf] = self._rolling_df[rtf]
 
-            # Determine indexes to process for the frontend and signals
+            # Determine indexes to process
             if old_df is None or old_df.empty:
                 idxs_to_process = [len(df) - 1]
                 re_run_start = True
@@ -490,7 +501,7 @@ class MTFLiveEngine:
                 except Exception as e:
                     log.warning(f"on_start recalibration failed [{tf}]: {e}")
 
-            # Get fresh indicators for frontend mapping
+            # Get fresh indicators for strategy logic (not sent to frontend)
             try:
                 ind_raw = strategy.get_indicator_data(df)
             except Exception:
@@ -503,15 +514,6 @@ class MTFLiveEngine:
                 formatted_time = b_time.isoformat() if hasattr(b_time, "isoformat") else str(b_time)
                 if not formatted_time.endswith("Z") and "+" not in formatted_time:
                     formatted_time += "Z"
-                
-                bar_dict = {
-                    "time": formatted_time,
-                    "open": float(row["open"]),
-                    "high": float(row["high"]),
-                    "low": float(row["low"]),
-                    "close": float(row["close"]),
-                    "volume": int(row["volume"] if pd.notna(row["volume"]) else 0)
-                }
 
                 # Evaluate Running Trades actively for TP/SL hits
                 for t in self.active_trades[tf][:]:
@@ -531,7 +533,7 @@ class MTFLiveEngine:
                         t["status"] = hit_status
                         t["close_time"] = formatted_time
                         self.active_trades[tf].remove(t)
-                        # We emit an update!
+                        # Emit trade update
                         signals.append({
                             "type": "trade_update",
                             "id": t["id"],
@@ -540,21 +542,6 @@ class MTFLiveEngine:
                             "symbol": self.symbol,
                             "timeframe": tf
                         })
-
-                # Format indicator payload
-                ind_dict = {}
-                for ind_name, vals in (ind_raw or {}).items():
-                    if vals is not None and len(vals) > idx and vals[idx] is not None:
-                        val = vals[idx]
-                        if not (isinstance(val, float) and (val != val)): # NaN check
-                            ind_dict[ind_name] = round(float(val), 6)
-
-                updates.append({
-                    "symbol": self.symbol, 
-                    "timeframe": tf, 
-                    "bar": bar_dict, 
-                    "indicators": ind_dict
-                })
 
                 # Evaluate strategy on EACH recovered bar (no skipped signals)
                 try:
@@ -574,7 +561,7 @@ class MTFLiveEngine:
                                 "price": float(row["close"]),
                                 "sl": sl,
                                 "tp": tp,
-                                "time": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
+                                "time": formatted_time,
                                 "bar_time": formatted_time,
                                 "status": "RUNNING"
                             }

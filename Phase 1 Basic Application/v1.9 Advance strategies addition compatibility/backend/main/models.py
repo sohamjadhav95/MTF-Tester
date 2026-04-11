@@ -64,6 +64,12 @@ class MTFStartRequest(BaseModel):
     provider: Literal["mt5", "binance"] = "mt5"
     start_time: Optional[str] = None
 
+# ── Watchlist ──────────────────────────────────────────────────────────
+class WatchStartRequest(BaseModel):
+    symbol: str
+    timeframe: str
+    provider: Literal["mt5", "binance"] = "mt5"
+
 # ── Orders ─────────────────────────────────────────────────────────────
 class OrderRequest(BaseModel):
     symbol: str

@@ -4,11 +4,15 @@ Chart + Backtest API Routes
 POST /api/chart/backtest           — Run backtest, return full result
 GET  /api/chart/strategies         — List available strategies + their config schemas
 GET  /api/chart/strategies/{name}  — Get single strategy config schema
-POST /api/chart/scanner/start      — Start MTF scanner, return historical data (REST)
+POST /api/chart/strategies/upload  — Upload a .py strategy file
+DELETE /api/chart/strategies/uploaded/{filename} — Delete uploaded strategy
+GET  /api/chart/strategies/uploaded/list — List uploaded strategies
+POST /api/chart/scanner/start      — Start headless MTF scanner → returns historical signals only
 POST /api/chart/scanner/stop       — Stop a running scanner
+GET  /api/chart/scanners           — List active scanners with status
 
-WebSocket:
-WS   /api/chart/ws/{client_id}     — Live bar updates stream (after scanner started via REST)
+No per-scanner WebSocket — signals go through /api/signals/ws,
+chart data goes through /api/watchlist/ws.
 
 All routes require auth.
 """
@@ -19,7 +23,7 @@ from datetime import datetime
 import shutil
 import types
 import importlib.util
-from fastapi import APIRouter, Request, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File
+from fastapi import APIRouter, Request, HTTPException, UploadFile, File
 from main.models import BacktestRequest, MTFStartRequest
 from main.logger import get_logger
 from chart.registry import auto_discover_strategies
@@ -32,8 +36,8 @@ router = APIRouter()
 
 # Active scanner engines — keyed by scanner_id
 _active_scanners: dict[str, MTFLiveEngine] = {}
-# WebSocket connections per scanner for live broadcasting
-_scanner_websockets: dict[str, list[WebSocket]] = {}
+# Scanner metadata for listing (name, config, etc.)
+_scanner_meta: dict[str, dict] = {}
 _scanner_counter = 0
 
 
@@ -416,14 +420,14 @@ async def run_backtest(req: BacktestRequest, request: Request):
     return result
 
 
-# ═══ REST-based Scanner Start/Stop (returns historical data) ═══════════
+# ═══ REST-based Scanner Start/Stop (headless — signals only) ═══════════
 
 @router.post("/scanner/start")
 async def start_scanner(req: MTFStartRequest, request: Request):
     """
-    Start a new MTF scanner. Returns historical candles, signals, and indicators
-    so the frontend can render charts immediately. Live bar updates are streamed
-    via the WebSocket endpoint.
+    Start a new headless MTF scanner. Returns historical signals only.
+    Live signals are published to the SignalBus and delivered via /api/signals/ws.
+    No candles, no indicators — charts are independent.
     """
     mt5 = get_mt5()
     if req.provider == "mt5" and not mt5.connected:
@@ -435,52 +439,50 @@ async def start_scanner(req: MTFStartRequest, request: Request):
     _scanner_counter += 1
     scanner_id = f"scan-{_scanner_counter}"
 
-    async def broadcast(payload):
-        """Broadcast live updates to all connected WebSockets for this scanner."""
-        ws_list = _scanner_websockets.get(scanner_id, [])
-        dead = []
-        for ws in ws_list:
-            try:
-                await ws.send_json(payload)
-            except Exception:
-                dead.append(ws)
-        for ws in dead:
-            ws_list.remove(ws)
-
     engine = MTFLiveEngine(
         symbol=req.symbol,
         timeframes=req.timeframes,
         strategy_name=req.strategy_name,
         settings=req.settings,
         provider=provider,
-        broadcast_callback=broadcast,
+        broadcast_callback=None,  # No WS broadcast — signals go through SignalBus
         start_time=req.start_time,
     )
 
-    # Fetch historical data synchronously (before starting live loop)
+    # Fetch historical signals synchronously (no candles, no indicators)
     try:
-        hist_candles, hist_signals, hist_indicators = await asyncio.to_thread(
+        hist_signals = await asyncio.to_thread(
             engine.get_historical_context
         )
     except Exception as e:
         log.error(f"Historical fetch failed: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to load historical data: {e}")
 
-    # Store engine and start live polling
+    # Store engine and metadata
     _active_scanners[scanner_id] = engine
-    _scanner_websockets[scanner_id] = []
+    _scanner_meta[scanner_id] = {
+        "name": req.settings.get("_name", f"{req.symbol} {req.strategy_name}"),
+        "symbol": req.symbol,
+        "timeframes": req.timeframes,
+        "strategy_name": req.strategy_name,
+        "provider": req.provider,
+    }
 
     # Start live updates (polling or WS streams) in background
     asyncio.create_task(engine.start_live_only())
+
+    # Publish historical signals to SignalBus
+    from signals.bus import SignalBus
+    bus = SignalBus.get()
+    for sig in hist_signals:
+        await bus.publish(sig)
 
     log.info(f"Scanner started | id={scanner_id} | symbol={req.symbol} | tfs={req.timeframes}")
 
     return {
         "success": True,
         "scanner_id": scanner_id,
-        "historical_candles": hist_candles,
         "historical_signals": hist_signals,
-        "historical_indicators": hist_indicators,
     }
 
 
@@ -493,12 +495,7 @@ async def stop_scanner(request: Request):
     if scanner_id in _active_scanners:
         _active_scanners[scanner_id].stop()
         del _active_scanners[scanner_id]
-        # Close all WebSockets for this scanner
-        for ws in _scanner_websockets.pop(scanner_id, []):
-            try:
-                await ws.close()
-            except Exception:
-                pass
+        _scanner_meta.pop(scanner_id, None)
         # Reset counter when no scanners active
         global _scanner_counter
         if not _active_scanners:
@@ -509,52 +506,19 @@ async def stop_scanner(request: Request):
     return {"success": False, "detail": "Scanner not found"}
 
 
-# ═══ WebSocket for Live Updates Only ═══════════════════════════════════
-
-@router.websocket("/ws/{scanner_id}")
-async def scanner_ws(websocket: WebSocket, scanner_id: str):
-    """
-    WebSocket for live bar updates and signals.
-    Client connects AFTER calling /scanner/start which returns historical data.
-    This WS only receives live updates — no historical replay.
-    """
-    await websocket.accept()
-
-    # Register this WS connection for the scanner
-    if scanner_id not in _scanner_websockets:
-        _scanner_websockets[scanner_id] = []
-    _scanner_websockets[scanner_id].append(websocket)
-
-    log.info(f"WS connected | scanner={scanner_id}")
-
-    try:
-        while True:
-            # Keep connection alive; listen for stop/ping messages
-            raw = await websocket.receive_text()
-            try:
-                msg = json.loads(raw)
-                if msg.get("action") == "stop":
-                    break
-            except Exception:
-                pass
-    except WebSocketDisconnect:
-        pass
-    except Exception as e:
-        log.error(f"WS error | scanner={scanner_id} | error={e}")
-    finally:
-        # Unregister this WS
-        ws_list = _scanner_websockets.get(scanner_id, [])
-        if websocket in ws_list:
-            ws_list.remove(websocket)
-        log.info(f"WS disconnected | scanner={scanner_id}")
-
-        # Fix #12: If no more WS clients, auto-stop the orphaned engine
-        remaining = _scanner_websockets.get(scanner_id, [])
-        if not remaining and scanner_id in _active_scanners:
-            log.info(f"No WS clients left — auto-stopping scanner {scanner_id}")
-            _active_scanners[scanner_id].stop()
-            del _active_scanners[scanner_id]
-            _scanner_websockets.pop(scanner_id, None)
-            global _scanner_counter
-            if not _active_scanners:
-                _scanner_counter = 0
+@router.get("/scanners")
+async def list_scanners():
+    """List active scanners with their status, config, and metadata."""
+    scanners = []
+    for sid, engine in _active_scanners.items():
+        meta = _scanner_meta.get(sid, {})
+        scanners.append({
+            "scanner_id": sid,
+            "name": meta.get("name", sid),
+            "symbol": engine.symbol,
+            "timeframes": engine.timeframes,
+            "strategy_name": engine.strategy_name,
+            "provider": meta.get("provider", "mt5"),
+            "is_running": engine.is_running,
+        })
+    return {"scanners": scanners}

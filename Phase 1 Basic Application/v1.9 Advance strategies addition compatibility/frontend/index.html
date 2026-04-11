@@ -56,14 +56,14 @@
                     <span class="nav-icon">📊</span>
                     <span class="nav-label">Dashboard</span>
                 </div>
+                <div class="nav-item" data-panel="charts" id="nav-charts">
+                    <span class="nav-icon">📈</span>
+                    <span class="nav-label">Charts</span>
+                </div>
                 <div class="nav-item" data-panel="mtf-config" id="nav-mtf-config">
                     <span class="nav-icon">⚡</span>
                     <span class="nav-label">MTF Strategy</span>
                 </div>
-
-                <!-- Dynamic Strategy Panels (injected by JS) -->
-                <div class="nav-divider" id="strat-divider" style="display:none;"></div>
-                <div id="strat-nav-list"></div>
 
                 <!-- Deploy Trades -->
                 <div class="nav-divider"></div>
@@ -82,7 +82,7 @@
 
             <!-- Signal Log -->
             <div class="left-content" id="left-signals">
-                <div class="section-label">Live Signals</div>
+                <div class="section-label">Live Signals <span style="font-size:9px; color:var(--text-3); font-weight:400;">(UTC)</span></div>
                 <div class="signals-log" id="signals-log">
                     <div class="empty-state" style="padding: 32px 12px;">
                         <div style="font-size: 24px; opacity: 0.2;">📡</div>
@@ -184,10 +184,47 @@
                 </div>
             </div>
 
+            <!-- ─── CHARTS PANEL (Independent Watchlist) ─── -->
+            <div class="panel" id="panel-charts">
+                <div class="panel-header">
+                    <span class="panel-header-title">Charts</span>
+                    <div class="panel-header-actions">
+                        <span class="badge badge-muted" id="charts-count-badge">0 / 6</span>
+                    </div>
+                </div>
+                <div class="panel-body" style="padding: 0; display: flex; flex-direction: column; overflow: hidden;">
+                    <!-- Add Chart Form -->
+                    <div class="watch-add-bar" id="watch-add-bar">
+                        <div class="form-group" style="flex: 1; max-width: 260px; margin: 0;">
+                            <input class="form-input form-input-sm" id="watch-symbol" placeholder="Symbol (e.g. XAUUSD)" autocomplete="off" oninput="filterWatchSymbolList()">
+                            <div class="symbol-dropdown" id="watch-symbol-dropdown"></div>
+                        </div>
+                        <div class="watch-tf-chips" id="watch-tf-select">
+                            <span class="tf-chip-sm" data-tf="M1">M1</span>
+                            <span class="tf-chip-sm selected" data-tf="M5">M5</span>
+                            <span class="tf-chip-sm" data-tf="M15">M15</span>
+                            <span class="tf-chip-sm" data-tf="M30">M30</span>
+                            <span class="tf-chip-sm" data-tf="H1">H1</span>
+                            <span class="tf-chip-sm" data-tf="H4">H4</span>
+                            <span class="tf-chip-sm" data-tf="D1">D1</span>
+                        </div>
+                        <button class="btn btn-primary btn-sm" id="watch-add-btn" onclick="handleAddWatchChart()">+ Add Chart</button>
+                    </div>
+
+                    <!-- Chart Grid -->
+                    <div class="watch-chart-grid" id="watch-chart-grid">
+                        <div class="empty-state" style="padding: 60px 24px;">
+                            <div style="font-size: 40px; opacity: 0.15;">📈</div>
+                            <div class="empty-state-desc">Add a symbol to start watching live charts</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- ─── MTF STRATEGY CONFIG PANEL ─────────────── -->
             <div class="panel" id="panel-mtf-config">
                 <div class="panel-header">
-                    <span class="panel-header-title">Add MTF Strategy</span>
+                    <span class="panel-header-title">MTF Strategy</span>
                 </div>
                 <div class="panel-body">
                     <form class="strat-config" id="mtf-config-form">
@@ -195,7 +232,7 @@
                         <div class="form-group">
                             <label class="form-label">Session Name</label>
                             <input class="form-input" id="cfg-name" placeholder="e.g. EURUSD Scalper" required>
-                            <div class="form-hint">This will appear in the left panel</div>
+                            <div class="form-hint">Identifier for this scanner session</div>
                         </div>
 
                         <!-- Symbol -->
@@ -219,7 +256,7 @@
                                 <span class="tf-chip" data-tf="D1">D1</span>
                                 <span class="tf-chip" data-tf="W1">W1</span>
                             </div>
-                            <div class="form-hint">Select 1–4 timeframes for multi-chart view</div>
+                            <div class="form-hint">Select 1–4 timeframes for multi-timeframe scanning</div>
                         </div>
 
                         <!-- Strategy -->
@@ -238,6 +275,16 @@
                             </button>
                         </div>
                     </form>
+
+                    <!-- Active Strategies Section -->
+                    <div class="dash-section" style="margin-top: var(--sp-6);" id="active-strategies-section">
+                        <div class="dash-section-title">Active Strategies</div>
+                        <div id="active-strategies-list">
+                            <div class="empty-state" style="padding: 24px;">
+                                <div class="empty-state-desc">No active scanners. Launch a strategy above.</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -459,9 +506,6 @@ class MyStrategy(BaseStrategy):
                     </div>
                 </div>
             </div>
-
-            <!-- ─── DYNAMIC STRATEGY PANELS (injected by JS) ── -->
-            <div id="dynamic-panels" style="display:contents;"></div>
 
         </main>
     </div>

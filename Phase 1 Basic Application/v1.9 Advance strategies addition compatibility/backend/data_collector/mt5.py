@@ -229,10 +229,9 @@ class MT5Provider(DataProvider):
 
         df = pd.DataFrame(rates)
         df["time"] = pd.to_datetime(df["time"], unit="s")
-        # Shift Broker time into strict UTC, then localize it to be timezone-aware.
+        # Shift Broker time into strict UTC (tz-naive — values are UTC, no tzinfo wrapper)
         if offset != 0:
             df["time"] = df["time"] - pd.Timedelta(seconds=offset)
-        df["time"] = df["time"].dt.tz_localize("UTC")
         
         df = df.rename(columns={"tick_volume": "volume"})
         df = df[["time", "open", "high", "low", "close", "volume", "spread"]]
@@ -265,15 +264,18 @@ class MT5Provider(DataProvider):
         df = pd.DataFrame(rates)
         df["time"] = pd.to_datetime(df["time"], unit="s")
         
-        # Shift Broker time into strict UTC
+        # Shift Broker time into strict UTC (tz-naive — values are UTC, no tzinfo wrapper)
         offset = self._get_utc_offset(mt5, symbol)
         if offset != 0:
             df["time"] = df["time"] - pd.Timedelta(seconds=offset)
-        df["time"] = df["time"].dt.tz_localize("UTC")
         
-        df["volume"] = df.get("tick_volume", 0)
+        df = df.rename(columns={"tick_volume": "volume"})
+
+        # Include spread column — matches fetch_ohlcv schema
+        if "spread" not in df.columns:
+            df["spread"] = 0
         
-        return df[["time", "open", "high", "low", "close", "volume"]]
+        return df[["time", "open", "high", "low", "close", "volume", "spread"]]
 
     # ── Trading / Order Execution ─────────────────────────────────
 

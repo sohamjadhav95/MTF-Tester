@@ -79,11 +79,11 @@ function fmtPrice(v, d = 5) { return v == null ? '—' : parseFloat(v).toFixed(d
 function fmtPct(v) { return v == null ? '—' : `${parseFloat(v).toFixed(2)}%`; }
 function fmtTime(iso) {
     if (!iso) return '—';
-    return new Date(iso).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    return new Date(iso).toLocaleString('en-US', { timeZone: 'UTC', hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 function fmtDateTime(iso) {
     if (!iso) return '—';
-    return new Date(iso).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
+    return new Date(iso).toLocaleString('en-US', { timeZone: 'UTC', hour12: false });
 }
 function colorVal(v) {
     if (v > 0) return 'var(--long)';
