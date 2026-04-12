@@ -19,7 +19,7 @@
 3. Start: `cd backend && python -m uvicorn main.app:app --host 127.0.0.1 --port 8000`
 4. Open `http://127.0.0.1:8000/auth` to create an account
 
-Or just double-click `start.bat`.
+Or just double-click `start.bat`
 
 ## Architecture
 
