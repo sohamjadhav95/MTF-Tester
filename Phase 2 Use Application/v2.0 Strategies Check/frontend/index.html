@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MTF Tester — Trading Platform</title>
+    <meta name="description" content="Professional multi-timeframe algorithmic trading platform">
+    <link rel="stylesheet" href="/styles/base.css">
+    <link rel="stylesheet" href="/styles/components.css">
+    <link rel="stylesheet" href="/styles/layout.css">
+    <link rel="stylesheet" href="/styles/panels.css">
+</head>
+<body>
+<div class="app" id="app">
+
+    <!-- ═══ TOP BAR ═══════════════════════════════════════════ -->
+    <header class="topbar">
+        <div class="topbar-brand">
+            <span class="topbar-brand-text">MTF Tester</span>
+            <span class="topbar-version">v2.0</span>
+        </div>
+
+        <!-- Market Section Tabs -->
+        <div class="market-tabs" id="market-tabs">
+            <button class="market-tab active" data-market="forex">Forex (MT5)</button>
+            <button class="market-tab disabled" data-market="crypto" title="Coming soon">Crypto</button>
+            <button class="market-tab disabled" data-market="local" title="Coming soon">Local</button>
+        </div>
+
+        <div class="topbar-spacer"></div>
+
+        <!-- Connection Status -->
+        <div class="conn-pill" id="conn-pill">
+            <span class="dot dot-off" id="conn-dot"></span>
+            <span id="conn-text">Disconnected</span>
+        </div>
+
+        <!-- User -->
+        <div class="user-pill" id="user-pill">
+            <div class="user-avatar" id="user-avatar">U</div>
+            <span class="user-name" id="user-name">User</span>
+        </div>
+        <button class="btn btn-icon btn-ghost" id="logout-btn" title="Logout">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+    </header>
+
+    <!-- ═══ APP BODY ══════════════════════════════════════════ -->
+    <div class="app-body">
+
+        <!-- ═══ LEFT PANE ═════════════════════════════════════ -->
+        <nav class="left-pane">
+            <div class="left-nav">
+                <!-- Core Navigation -->
+                <div class="nav-item active" data-panel="dashboard" id="nav-dashboard">
+                    <span class="nav-icon">📊</span>
+                    <span class="nav-label">Dashboard</span>
+                </div>
+                <div class="nav-item" data-panel="charts" id="nav-charts">
+                    <span class="nav-icon">📈</span>
+                    <span class="nav-label">Charts</span>
+                </div>
+                <div class="nav-item" data-panel="mtf-config" id="nav-mtf-config">
+                    <span class="nav-icon">⚡</span>
+                    <span class="nav-label">MTF Strategy</span>
+                </div>
+
+                <!-- Deploy Trades -->
+                <div class="nav-divider"></div>
+                <div class="nav-item" data-panel="deploy-trades" id="nav-deploy-trades">
+                    <span class="nav-icon">🛡️</span>
+                    <span class="nav-label">Deploy Trades</span>
+                </div>
+
+                <!-- Bottom nav -->
+                <div class="nav-divider"></div>
+                <div class="nav-item" data-panel="create-strategy" id="nav-create-strategy">
+                    <span class="nav-icon">🧪</span>
+                    <span class="nav-label">Create Strategy</span>
+                </div>
+
+                <!-- Dynamic Scanner Panels (added at runtime) -->
+                <div id="scanner-nav-section" style="display:none;">
+                    <div class="nav-divider"></div>
+                    <div class="section-label" style="padding: 4px 12px 2px; font-size: 9px;">Active Scanners</div>
+                </div>
+            </div>
+
+            <!-- Left pane bottom spacer -->
+            <div class="left-content" id="left-signals" style="flex:1;"></div>
+        </nav>
+
+        <!-- ═══ MAIN AREA ═════════════════════════════════════ -->
+        <main class="main-area">
+
+            <!-- ─── DASHBOARD PANEL ───────────────────────── -->
+            <div class="panel active" id="panel-dashboard">
+                <div class="panel-header">
+                    <span class="panel-header-title">Dashboard</span>
+                    <div class="panel-header-actions" id="dash-actions"></div>
+                </div>
+                <div class="panel-body">
+                    <!-- MT5 Connection -->
+                    <div class="dash-section">
+                        <div class="dash-section-title">MetaTrader 5 Connection</div>
+                        <div class="card connect-card" id="mt5-card">
+                            <div class="card-header">
+                                <span class="card-title">Account</span>
+                                <span class="badge badge-error" id="mt5-status-badge">Disconnected</span>
+                            </div>
+                            <div class="card-body">
+                                <form id="mt5-connect-form" autocomplete="off">
+                                    <div class="form-row">
+                                        <div class="form-group">
+                                            <label class="form-label">Server</label>
+                                            <input class="form-input" id="mt5-server" placeholder="e.g. MetaQuotes-Demo" required>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">Login</label>
+                                            <input class="form-input" id="mt5-login" type="number" placeholder="Account number" required>
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">Password</label>
+                                        <input class="form-input" id="mt5-password" type="password" placeholder="••••••••" required>
+                                    </div>
+                                    <div style="display: flex; align-items: center; justify-content: space-between; margin-top: var(--sp-3);">
+                                        <label class="form-checkbox">
+                                            <input type="checkbox" id="mt5-save" checked>
+                                            Save credentials
+                                        </label>
+                                        <div style="display: flex; gap: var(--sp-2);">
+                                            <button type="button" class="btn btn-secondary btn-sm" id="mt5-load-saved">Load Saved</button>
+                                            <button type="submit" class="btn btn-primary btn-sm" id="mt5-connect-btn">Connect</button>
+                                        </div>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Account Overview -->
+                    <div class="dash-section">
+                        <div class="dash-section-title">Account Overview</div>
+                        <div class="stats-row">
+                            <div class="stat-box">
+                                <div class="stat-box-label">Balance</div>
+                                <div class="stat-box-value" id="acc-balance">—</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="stat-box-label">Equity</div>
+                                <div class="stat-box-value" id="acc-equity">—</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="stat-box-label">Free Margin</div>
+                                <div class="stat-box-value" id="acc-margin">—</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="stat-box-label">Floating P&L</div>
+                                <div class="stat-box-value" id="acc-pnl">—</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="stat-box-label">Open Positions</div>
+                                <div class="stat-box-value" id="acc-positions">—</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="stat-box-label">Server</div>
+                                <div class="stat-box-value" id="acc-server" style="font-family: var(--ff-sans); font-size: var(--fs-sm);">—</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Open Positions -->
+                    <div class="dash-section">
+                        <div class="dash-section-title">Open Positions</div>
+                        <div id="dash-positions">
+                            <div class="empty-state" style="padding: 24px;">
+                                <div class="empty-state-desc">Connect MT5 to view open positions</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ─── CHARTS PANEL (Independent Watchlist) ─── -->
+            <div class="panel" id="panel-charts">
+                <div class="panel-header">
+                    <span class="panel-header-title">Charts</span>
+                    <div class="panel-header-actions">
+                        <button class="btn btn-ghost btn-sm" id="global-indicator-btn" onclick="openGlobalIndicatorModal()" title="Manage Indicators">📊 Indicators</button>
+                        <span class="badge badge-muted" id="charts-count-badge">0 / 6</span>
+                    </div>
+                </div>
+                <div class="panel-body" style="padding: 0; display: flex; flex-direction: column; overflow: hidden;">
+                    <!-- Add Chart Form -->
+                    <div class="watch-add-bar" id="watch-add-bar">
+                        <div class="form-group" style="flex: 1; max-width: 260px; margin: 0;">
+                            <input class="form-input form-input-sm" id="watch-symbol" placeholder="Symbol (e.g. XAUUSD)" autocomplete="off" oninput="filterWatchSymbolList()">
+                            <div class="symbol-dropdown" id="watch-symbol-dropdown"></div>
+                        </div>
+                        <div class="watch-tf-chips" id="watch-tf-select">
+                            <span class="tf-chip-sm" data-tf="M1">M1</span>
+                            <span class="tf-chip-sm selected" data-tf="M5">M5</span>
+                            <span class="tf-chip-sm" data-tf="M15">M15</span>
+                            <span class="tf-chip-sm" data-tf="M30">M30</span>
+                            <span class="tf-chip-sm" data-tf="H1">H1</span>
+                            <span class="tf-chip-sm" data-tf="H4">H4</span>
+                            <span class="tf-chip-sm" data-tf="D1">D1</span>
+                        </div>
+                        <button class="btn btn-primary btn-sm" id="watch-add-btn" onclick="handleAddWatchChart()">+ Add Chart</button>
+                    </div>
+
+                    <!-- Global Indicator Chips Bar -->
+                    <div class="global-indicator-bar" id="global-indicator-bar" style="display:none;"></div>
+
+                    <!-- Chart Grid -->
+                    <div class="watch-chart-grid" id="watch-chart-grid">
+                        <div class="empty-state" style="padding: 60px 24px;">
+                            <div style="font-size: 40px; opacity: 0.15;">📈</div>
+                            <div class="empty-state-desc">Add a symbol to start watching live charts</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ─── MTF STRATEGY CONFIG PANEL ─────────────── -->
+            <div class="panel" id="panel-mtf-config">
+                <div class="panel-header">
+                    <span class="panel-header-title">MTF Strategy</span>
+                </div>
+                <div class="panel-body">
+                    <form class="strat-config" id="mtf-config-form">
+                        <!-- Name -->
+                        <div class="form-group">
+                            <label class="form-label">Session Name</label>
+                            <input class="form-input" id="cfg-name" placeholder="e.g. EURUSD Scalper" required>
+                            <div class="form-hint">Identifier for this scanner session</div>
+                        </div>
+
+                        <!-- Symbol -->
+                        <div class="form-group">
+                            <label class="form-label">Symbol</label>
+                            <input class="form-input" id="cfg-symbol" placeholder="Search symbols (e.g. EURUSD)" autocomplete="off" required oninput="filterSymbolList()">
+                            <div class="symbol-dropdown" id="cfg-symbol-dropdown"></div>
+                            <div class="form-hint">Select a symbol from your MT5 broker</div>
+                        </div>
+
+                        <!-- Timeframes -->
+                        <div class="form-group">
+                            <label class="form-label">Timeframes</label>
+                            <div class="tf-chips" id="cfg-timeframes">
+                                <span class="tf-chip" data-tf="M1">M1</span>
+                                <span class="tf-chip" data-tf="M5">M5</span>
+                                <span class="tf-chip selected" data-tf="M15">M15</span>
+                                <span class="tf-chip" data-tf="M30">M30</span>
+                                <span class="tf-chip selected" data-tf="H1">H1</span>
+                                <span class="tf-chip" data-tf="H4">H4</span>
+                                <span class="tf-chip" data-tf="D1">D1</span>
+                                <span class="tf-chip" data-tf="W1">W1</span>
+                            </div>
+                            <div class="form-hint">Select 1–4 timeframes for multi-timeframe scanning</div>
+                        </div>
+
+                        <!-- Strategy -->
+                        <div class="form-group">
+                            <label class="form-label">Strategy</label>
+                            <select class="form-input form-select" id="cfg-strategy"></select>
+                        </div>
+
+                        <!-- Dynamic Strategy Settings -->
+                        <div id="cfg-strat-settings"></div>
+
+                        <!-- Actions -->
+                        <div style="display: flex; gap: var(--sp-3); margin-top: var(--sp-5);">
+                            <button type="submit" class="btn btn-primary btn-block btn-lg" id="cfg-launch-btn">
+                                ⚡ Launch Scanner
+                            </button>
+                        </div>
+                    </form>
+
+                    <!-- Active Strategies Section -->
+                    <div class="dash-section" style="margin-top: var(--sp-6);" id="active-strategies-section">
+                        <div class="dash-section-title">Active Strategies</div>
+                        <div id="active-strategies-list">
+                            <div class="empty-state" style="padding: 24px;">
+                                <div class="empty-state-desc">No active scanners. Launch a strategy above.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ─── CREATE STRATEGY PANEL ──────────────────────────────── -->
+            <div class="panel" id="panel-create-strategy">
+                <div class="panel-header">
+                    <span class="panel-header-title">Create Strategy</span>
+                </div>
+                <div class="panel-body strat-upload-body">
+
+                    <!-- Info banner -->
+                    <div class="info-banner">
+                        <span class="info-banner-icon">📋</span>
+                        <div>
+                            <div class="info-banner-title">How to create a strategy</div>
+                            <div class="info-banner-text">
+                                Write a Python strategy file that extends <code>BaseStrategy</code>,
+                                then upload it here. It will appear in the strategy dropdown immediately.
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Upload zone -->
+                    <div class="upload-drop-zone" id="strat-drop-zone">
+                        <div class="upload-icon">📄</div>
+                        <div class="upload-text">Drop your <code>.py</code> strategy file here</div>
+                        <div class="upload-sub">or</div>
+                        <label class="btn btn-secondary" style="cursor:pointer; margin-top: 4px;">
+                            Browse File
+                            <input type="file" id="strat-file-input" accept=".py" style="display:none;">
+                        </label>
+                    </div>
+
+                    <!-- Upload status -->
+                    <div id="strat-upload-status" style="display:none; margin-top: var(--sp-3);"></div>
+
+                    <!-- Uploaded strategies list -->
+                    <div id="strat-uploaded-section" style="margin-top: var(--sp-5); display:none;">
+                        <div class="dash-section-title" style="margin-bottom: var(--sp-2);">
+                            Uploaded Strategies
+                            <button class="btn btn-ghost btn-xs" onclick="refreshUploadedStrategies()" 
+                                    style="margin-left: var(--sp-2); font-size:11px;">↺ Refresh</button>
+                        </div>
+                        <div id="strat-uploaded-list"></div>
+                    </div>
+
+                    <!-- Strategy file format guide -->
+                    <details class="strat-guide" style="margin-top: var(--sp-5);">
+                        <summary class="strat-guide-title">Strategy File Format Reference</summary>
+                        <div class="strat-guide-body">
+                            <div class="strat-guide-section">
+                                <strong>Required structure:</strong>
+                                <pre class="code-block">from strategies._template import BaseStrategy, StrategyConfig
+from pydantic import Field
+import numpy as np, pandas as pd
+
+class MyConfig(StrategyConfig):
+    fast_period: int = Field(10, description="Fast EMA Period")
+    slow_period: int = Field(50, description="Slow EMA Period")
+
+class MyStrategy(BaseStrategy):
+    name         = "My Strategy"     # shown in dropdown
+    description  = "What it does"
+    config_model = MyConfig
+
+    def on_start(self, data: pd.DataFrame):
+        # Pre-compute all indicators ONCE here
+        # Store in self._cache dict
+        self._cache = { "ema": [...] }
+
+    def on_bar(self, index: int, data: pd.DataFrame):
+        # Read from self._cache only — never compute here
+        # Return: "BUY", "SELL", "HOLD"
+        # Or with SL/TP: ("BUY", sl_price, tp_price)
+        if index &lt; 2: return "HOLD"
+        return "HOLD"
+
+    def get_indicator_data(self, data: pd.DataFrame) -> dict:
+        # Return {label: [float_or_None, ...]} same length as data
+        # Labels with rsi/macd/stoch/volume → separate pane
+        return { "EMA Fast": [...], "EMA Slow": [...] }</pre>
+                            </div>
+                            <div class="strat-guide-section">
+                                <strong>Signal return values:</strong>
+                                <ul class="guide-list">
+                                    <li><code>"BUY"</code> — enter long, no SL/TP</li>
+                                    <li><code>"SELL"</code> — enter short, no SL/TP</li>
+                                    <li><code>"HOLD"</code> — do nothing</li>
+                                    <li><code>("BUY", 1.0850, 1.0920)</code> — long with SL and TP (absolute prices)</li>
+                                    <li><code>("SELL", 1.0920, 1.0850)</code> — short with SL and TP</li>
+                                    <li><code>("BUY", None, 1.0920)</code> — long with TP only</li>
+                                </ul>
+                            </div>
+                            <div class="strat-guide-section">
+                                <strong>Important rules:</strong>
+                                <ul class="guide-list">
+                                    <li>All heavy computation goes in <code>on_start()</code></li>
+                                    <li><code>on_bar()</code> must only READ from <code>self._cache</code></li>
+                                    <li>SL/TP values are <em>absolute price values</em>, not pip distances</li>
+                                    <li>The <code>data</code> in <code>on_bar()</code> contains only bars up to current — no look-ahead</li>
+                                    <li>Allowed imports: numpy, pandas, math, typing, pydantic, strategies._template</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </details>
+
+                </div>
+            </div>
+
+            <!-- ─── DEPLOY TRADES PANEL ─────────────────────── -->
+            <div class="panel" id="panel-deploy-trades">
+                <div class="panel-header">
+                    <div style="display:flex; align-items:center; gap: var(--sp-3);">
+                        <span class="panel-header-title">Deploy Trades</span>
+                        <span class="badge badge-warning">LIVE</span>
+                    </div>
+                    <div class="panel-header-actions">
+                        <button class="btn btn-error btn-sm" id="close-all-btn">Close All Positions</button>
+                    </div>
+                </div>
+                <div class="panel-body">
+
+                    <!-- Mode Tabs -->
+                    <div class="trade-mode-tabs">
+                        <button class="trade-mode-tab active" data-mode="manual">Manual Order</button>
+                        <button class="trade-mode-tab" data-mode="auto">Auto Mode</button>
+                    </div>
+
+                    <!-- ═══ MANUAL TRADE SECTION ═══════════════ -->
+                    <div id="manual-trade-section">
+                        <div class="dash-section">
+                            <div class="dash-section-title">Place Order</div>
+                            <form class="order-form" id="manual-order-form" autocomplete="off">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label class="form-label">Symbol</label>
+                                        <input class="form-input" id="order-symbol" placeholder="Search symbols..." autocomplete="off" required oninput="filterOrderSymbolList()">
+                                        <div class="symbol-dropdown" id="order-symbol-dropdown"></div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">Order Type</label>
+                                        <select class="form-input form-select" id="order-type">
+                                            <option value="market">Market</option>
+                                            <option value="pending">Pending</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label class="form-label">Direction</label>
+                                        <select class="form-input form-select" id="order-direction">
+                                            <option value="buy">BUY</option>
+                                            <option value="sell">SELL</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">Volume (lots)</label>
+                                        <input class="form-input" id="order-volume" type="number" step="0.01" min="0.01" value="0.01" required>
+                                    </div>
+                                </div>
+                                <div class="form-group" id="order-price-group" style="display:none;">
+                                    <label class="form-label">Price</label>
+                                    <input class="form-input" id="order-price" type="number" step="0.00001" placeholder="Pending order price">
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label class="form-checkbox">
+                                            <input type="checkbox" id="sl-enabled"> Stop Loss
+                                        </label>
+                                        <input class="form-input" id="order-sl" type="number" step="0.00001" placeholder="SL price" disabled>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-checkbox">
+                                            <input type="checkbox" id="tp-enabled"> Take Profit
+                                        </label>
+                                        <input class="form-input" id="order-tp" type="number" step="0.00001" placeholder="TP price" disabled>
+                                    </div>
+                                </div>
+                                <button type="submit" class="btn btn-primary btn-block btn-lg" id="place-order-btn">
+                                    Place Order
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <!-- ═══ AUTO TRADE SECTION ═════════════════ -->
+                    <div id="auto-trade-section" style="display:none;">
+                        <div class="dash-section">
+                            <div class="dash-section-title">Auto Trading — Scanner Selection</div>
+                            <div class="form-hint" style="margin-bottom: var(--sp-3);">
+                                Enable auto-trade on active strategy scanners. When enabled, signals will be automatically executed as market orders.
+                            </div>
+                            <div id="auto-scanner-list">
+                                <div class="empty-state" style="padding: 24px;">
+                                    <div class="empty-state-desc">No active scanners. Launch an MTF Strategy first.</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ═══ RISK GUARD ═════════════════════════ -->
+                    <div class="dash-section" style="margin-top: var(--sp-4);">
+                        <div class="dash-section-title">Risk Guard</div>
+                        <form id="risk-guard-form" autocomplete="off">
+                            <div class="form-row" style="align-items:center;">
+                                <label class="form-checkbox" style="flex: 1;">
+                                    <input type="checkbox" id="risk-enabled"> Enable Risk Threshold
+                                </label>
+                                <div class="form-group" style="flex: 1;">
+                                    <label class="form-label">Max Capital Risk (%)</label>
+                                    <input class="form-input" id="risk-threshold" type="number" step="0.1" min="0.1" max="100" value="5">
+                                </div>
+                            </div>
+                            <label class="form-checkbox">
+                                <input type="checkbox" id="risk-auto-close"> Auto-close all positions on breach
+                            </label>
+                            <button type="submit" class="btn btn-warning btn-sm" style="margin-top: var(--sp-3);">Update Risk Guard</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ─── DYNAMIC SCANNER SIGNAL PANELS (injected at runtime) ─── -->
+
+        </main>
+    </div>
+</div>
+
+<!-- ═══ CHART EXPAND MODAL ════════════════════════════════════ -->
+<div class="chart-modal-overlay" id="chart-expand-modal">
+    <div class="chart-modal-content">
+        <div class="chart-modal-header">
+            <h2 class="chart-modal-title" id="chart-modal-title">Chart</h2>
+            <button class="chart-modal-close" id="chart-modal-close">&times;</button>
+        </div>
+        <div class="chart-modal-body" id="chart-modal-container"></div>
+    </div>
+</div>
+
+<!-- ═══ CONFIRM MODAL ═════════════════════════════════════════ -->
+<div class="modal-overlay" id="confirm-modal">
+    <div class="modal">
+        <div class="modal-title" id="confirm-title">Confirm</div>
+        <p style="color: var(--text-2); font-size: var(--fs-sm); line-height: 1.6;" id="confirm-message"></p>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" id="confirm-cancel">Cancel</button>
+            <button class="btn btn-primary" id="confirm-ok">Confirm</button>
+        </div>
+    </div>
+</div>
+
+<!-- ═══ TOASTS ════════════════════════════════════════════════ -->
+<div class="toast-container" id="toast-container"></div>
+
+<!-- ═══ INDICATOR PICKER MODAL ═════════════════════════════════ -->
+<div class="indicator-modal-overlay" id="indicator-modal" onclick="if(event.target===this)closeIndicatorModal()">
+    <div class="indicator-modal">
+        <div class="indicator-modal-header">
+            <h3 class="indicator-modal-title">Indicators</h3>
+            <button class="indicator-modal-close" onclick="closeIndicatorModal()">&times;</button>
+        </div>
+        <div class="indicator-search-wrap">
+            <input type="text" class="indicator-search" id="indicator-search"
+                   placeholder="Search indicators..." oninput="handleIndicatorSearch()" autocomplete="off">
+        </div>
+        <div class="indicator-cat-tabs" id="indicator-categories">
+            <span class="indicator-cat-tab active" data-cat="all" onclick="handleIndicatorCategoryTab(this)">All</span>
+            <span class="indicator-cat-tab" data-cat="trend" onclick="handleIndicatorCategoryTab(this)">Trend</span>
+            <span class="indicator-cat-tab" data-cat="oscillator" onclick="handleIndicatorCategoryTab(this)">Oscillator</span>
+            <span class="indicator-cat-tab" data-cat="volume" onclick="handleIndicatorCategoryTab(this)">Volume</span>
+        </div>
+        <div class="indicator-list" id="indicator-list"></div>
+    </div>
+</div>
+
+<!-- ═══ INDICATOR SETTINGS PANEL ═══════════════════════════════ -->
+<div class="indicator-settings-overlay" id="indicator-settings-panel" onclick="if(event.target===this)closeIndicatorSettings()">
+    <div class="indicator-settings-panel">
+        <div class="ind-settings-header">
+            <span class="ind-settings-title">Indicator Settings</span>
+            <button class="ind-settings-close" onclick="closeIndicatorSettings()">&times;</button>
+        </div>
+        <div class="ind-settings-body"></div>
+        <div class="ind-settings-footer">
+            <button class="btn btn-secondary btn-sm" onclick="removeFromSettings()">Remove</button>
+            <button class="btn btn-primary btn-sm" onclick="applyIndicatorSettings()">Apply</button>
+        </div>
+    </div>
+</div>
+
+<!-- ═══ SCRIPTS ═══════════════════════════════════════════════ -->
+<script src="https://unpkg.com/lightweight-charts@4.2.2/dist/lightweight-charts.standalone.production.js"></script>
+<script src="/js/core.js"></script>
+<script src="/js/indicators.js"></script>
+<script src="/js/dashboard.js"></script>
+
+</body>
+</html>
