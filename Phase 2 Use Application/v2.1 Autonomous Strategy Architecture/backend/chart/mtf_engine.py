@@ -68,7 +68,15 @@ class LiveScanEngine:
         self._rolling_df: Optional[pd.DataFrame] = None
         self._active_trades: List[Dict] = []
         self._last_signal_time = None
-        self._last_signal_htf_idx: int = -1   # Bug 4: HTF-bar dedup
+        self._last_signal_htf_idx: int = -1   # HTF-bar dedup
+
+        # Display TF: read the strategy's configured operating timeframe so
+        # the signal panel shows "H4" instead of "M1" when running on H4.
+        # Falls back to "M1" for strategies with no timeframe config field.
+        self._signal_tf: str = (
+            getattr(getattr(self.strategy, "config", None), "timeframe", None)
+            or "M1"
+        )
 
         self._running = False
         self._ws_running = True
@@ -174,7 +182,7 @@ class LiveScanEngine:
                         "id": str(uuid.uuid4()),
                         "type": "signal",
                         "symbol": self.symbol,
-                        "timeframe": "M1",
+                        "timeframe": self._signal_tf,
                         "strategy": self.strategy_name,
                         "direction": direction,
                         "price": float(bar["close"]),
@@ -300,7 +308,7 @@ class LiveScanEngine:
                         "id": str(uuid.uuid4()),
                         "type": "signal",
                         "symbol": self.symbol,
-                        "timeframe": "M1",
+                        "timeframe": self._signal_tf,
                         "strategy": self.strategy_name,
                         "direction": direction,
                         "price": float(row["close"]),
@@ -410,7 +418,7 @@ class LiveScanEngine:
                     "id": str(uuid.uuid4()),
                     "type": "signal",
                     "symbol": self.symbol,
-                    "timeframe": "M1",
+                    "timeframe": self._signal_tf,
                     "strategy": self.strategy_name,
                     "direction": direction,
                     "price": float(bar["close"]),
@@ -425,7 +433,7 @@ class LiveScanEngine:
                         asyncio.run_coroutine_threadsafe(self._publish(sig), loop)
                 except Exception:
                     pass
-                log.info(f"Signal | {direction} {self.symbol} [M1] @ {bar['close']}")
+                log.info(f"Signal | {direction} {self.symbol} [{self._signal_tf}] @ {bar['close']}")
         except Exception:
             pass
 
