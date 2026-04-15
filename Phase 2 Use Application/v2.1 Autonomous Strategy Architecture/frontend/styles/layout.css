@@ -1,0 +1,185 @@
+/* ══════════════════════════════════════════════════════════════
+   LAYOUT.CSS v2 — Shell: Top Bar, Market Tabs, Left Pane, Main
+   ══════════════════════════════════════════════════════════════ */
+
+.app { display: flex; flex-direction: column; height: 100vh; width: 100vw; overflow: hidden; }
+
+/* ═══ TOP BAR ═══════════════════════════════════════════════ */
+.topbar {
+    height: var(--topbar-h); min-height: var(--topbar-h);
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-1);
+    display: flex; align-items: center;
+    padding: 0 var(--sp-4); gap: var(--sp-4); z-index: 100;
+}
+
+.topbar-brand {
+    display: flex; align-items: center; gap: var(--sp-2);
+    padding-right: var(--sp-4);
+    border-right: 1px solid var(--border-1);
+    margin-right: var(--sp-2);
+}
+.topbar-brand-text {
+    font-size: var(--fs-md); font-weight: 800; letter-spacing: -0.3px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-secondary));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+.topbar-version { font-size: var(--fs-2xs); color: var(--text-3); font-weight: 500; }
+
+/* ── Market Tabs ───────────────────────────────────────────── */
+.market-tabs {
+    display: flex; gap: 1px; background: var(--bg-input);
+    border-radius: var(--r-sm); padding: 2px;
+    border: 1px solid var(--border-1);
+}
+.market-tab {
+    padding: 5px 14px; border-radius: var(--r-xs);
+    font-size: var(--fs-xs); font-weight: 600; color: var(--text-3);
+    cursor: pointer; transition: all var(--t-fast);
+    white-space: nowrap; letter-spacing: 0.02em;
+}
+.market-tab:hover { color: var(--text-2); }
+.market-tab.active { background: var(--accent); color: #fff; }
+.market-tab.disabled { opacity: 0.35; cursor: not-allowed; }
+
+.topbar-spacer { flex: 1; }
+
+/* ── Connection Pill ───────────────────────────────────────── */
+.conn-pill {
+    display: flex; align-items: center; gap: var(--sp-2);
+    font-size: var(--fs-xs); color: var(--text-2);
+    padding: 4px 10px; background: var(--bg-tertiary);
+    border-radius: var(--r-full); border: 1px solid var(--border-1);
+    font-weight: 500;
+}
+
+/* ── User Menu ─────────────────────────────────────────────── */
+.user-pill {
+    display: flex; align-items: center; gap: var(--sp-2);
+    padding: 3px 10px 3px 3px; background: var(--bg-tertiary);
+    border-radius: var(--r-full); border: 1px solid var(--border-1);
+    cursor: pointer; transition: border-color var(--t-fast);
+}
+.user-pill:hover { border-color: var(--border-2); }
+.user-avatar {
+    width: 24px; height: 24px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent-secondary));
+    display: flex; align-items: center; justify-content: center;
+    font-size: var(--fs-2xs); font-weight: 800; color: #fff;
+}
+.user-name { font-size: var(--fs-xs); font-weight: 500; color: var(--text-2); }
+
+/* ═══ APP BODY ══════════════════════════════════════════════ */
+.app-body { display: flex; flex: 1; overflow: hidden; }
+
+/* ═══ LEFT PANE ═════════════════════════════════════════════ */
+.left-pane {
+    width: var(--left-w); min-width: var(--left-w);
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border-1);
+    display: flex; flex-direction: column; overflow: hidden;
+}
+
+.left-nav { padding: var(--sp-2) var(--sp-2) 0; flex-shrink: 0; }
+
+.nav-item {
+    display: flex; align-items: center; gap: var(--sp-3);
+    padding: 8px 12px; border-radius: var(--r-sm);
+    color: var(--text-3); font-size: var(--fs-sm); font-weight: 500;
+    cursor: pointer; transition: all var(--t-fast);
+    position: relative; margin-bottom: 1px;
+}
+.nav-item:hover { background: var(--bg-tertiary); color: var(--text-2); }
+.nav-item.active {
+    background: var(--accent-muted); color: var(--accent);
+}
+.nav-item.active::before {
+    content: ''; position: absolute; left: 0; top: 4px; bottom: 4px;
+    width: 2px; background: var(--accent); border-radius: 0 2px 2px 0;
+}
+.nav-icon { width: 16px; text-align: center; font-size: 14px; flex-shrink: 0; }
+.nav-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-badge {
+    font-size: 9px; font-weight: 800; padding: 1px 5px;
+    border-radius: var(--r-full); background: var(--accent-muted);
+    color: var(--accent); letter-spacing: 0.05em;
+}
+.nav-badge-phase { background: var(--short-bg); color: var(--short); }
+.nav-close {
+    width: 18px; height: 18px; border-radius: var(--r-xs);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; color: var(--text-3); cursor: pointer;
+    transition: all var(--t-fast); opacity: 0;
+}
+.nav-item:hover .nav-close { opacity: 1; }
+.nav-close:hover { background: var(--short-bg); color: var(--short); }
+
+/* ── Strategy Sub-Panels Divider ───────────────────────────── */
+.nav-divider {
+    height: 1px; background: var(--border-1);
+    margin: var(--sp-2) var(--sp-3);
+}
+
+/* ── Left Pane Scrollable Content ──────────────────────────── */
+.left-content {
+    flex: 1; overflow-y: auto; padding: var(--sp-2);
+}
+
+/* ═══ MAIN AREA ═════════════════════════════════════════════ */
+.main-area {
+    flex: 1; overflow: hidden; display: flex; flex-direction: column;
+    background: var(--bg-root);
+}
+
+/* ── Panel Container ───────────────────────────────────────── */
+.panel { display: none; flex: 1; flex-direction: column; overflow: hidden; }
+.panel.active { display: flex; animation: fadeIn 0.2s ease; }
+
+/* ── Panel Header ──────────────────────────────────────────── */
+.panel-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: var(--sp-3) var(--sp-4);
+    border-bottom: 1px solid var(--border-1);
+    background: var(--bg-primary);
+    flex-shrink: 0;
+}
+.panel-header-title { font-size: var(--fs-md); font-weight: 700; }
+.panel-header-actions { display: flex; gap: var(--sp-2); align-items: center; }
+
+/* ── Panel Body ────────────────────────────────────────────── */
+.panel-body {
+    flex: 1; overflow-y: auto; padding: var(--sp-4);
+}
+
+/* ── Multi-Chart Grid ──────────────────────────────────────── */
+.chart-grid {
+    display: grid; gap: 1px; flex: 1; overflow: hidden;
+    padding: 0; min-height: 0; background: var(--border-1);
+}
+.chart-grid.cols-1 { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+.chart-grid.cols-2 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; }
+.chart-grid.cols-3 { grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr; }
+.chart-grid.cols-4 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+
+.chart-cell {
+    background: var(--bg-card);
+    overflow: hidden;
+    display: flex; flex-direction: column; min-height: 0;
+    min-width: 0;
+}
+.chart-cell-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: var(--sp-1) var(--sp-3); background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-1); flex-shrink: 0;
+    height: 32px; min-height: 32px;
+}
+.chart-cell-tf { font-size: var(--fs-xs); font-weight: 700; color: var(--accent); }
+.chart-cell-price { font-family: var(--ff-mono); font-size: var(--fs-sm); font-weight: 600; }
+.chart-cell-body {
+    flex: 1; position: relative; min-height: 0; overflow: hidden;
+    min-height: 80px;
+}
+.chart-cell-signal {
+    position: absolute; bottom: var(--sp-2); right: var(--sp-2);
+    z-index: 5;
+}
