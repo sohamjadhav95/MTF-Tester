@@ -333,7 +333,7 @@ class PulseZoneStrategy(BaseStrategy):
             return [None if np.isnan(v) else round(float(v), 6) for v in arr]
 
         return {
-            f"EMA {cfg.fast_period}": to_list(cache["ema_fast"]),
-            f"EMA {cfg.slow_period}": to_list(cache["ema_slow"]),
-            "ATR oscillator": to_list(cache["atr"]),
+            f"EMA {cfg.fast_period}":  to_list(cache["ema_fast"]),
+            f"EMA {cfg.slow_period}":  to_list(cache["ema_slow"]),
+            "ATR oscillator":          to_list(cache["atr"]),
         }

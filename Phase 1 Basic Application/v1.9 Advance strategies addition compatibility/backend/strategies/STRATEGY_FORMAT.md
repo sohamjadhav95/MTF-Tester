@@ -35,9 +35,13 @@ class MyStrategy(BaseStrategy):
 
     def on_start(self, data: pd.DataFrame):
         """
-        Called ONCE before the bar loop.
+        Called ONCE before the bar loop (backtest).
+        Called on EVERY NEW BAR in live scanning (recalibration).
         Pre-compute ALL indicators here and store in self._cache.
         data contains the full dataset (all bars).
+        
+        IMPORTANT for live mode: use `if not hasattr(self, '_state'):` to
+        preserve stateful data (zones, trades, counters) across recalibrations.
         """
         cfg = self.config
         close = data["close"].values.astype(float)
@@ -160,3 +164,26 @@ mode:   Literal[...] = Field("both", ...)              # dropdown select
 - `strategies._template` (for BaseStrategy, StrategyConfig)
 
 **Blocked:** `os`, `subprocess`, `socket`, `requests`, `open()`, `urllib`, `pathlib`
+
+## Live Scanning — on_start Recalibration
+
+In **backtest** mode, `on_start()` is called exactly once before the bar loop.
+
+In **live scanning**, `on_start()` is called **every time a new bar forms** to recalibrate
+the indicator cache with the extended DataFrame. This means:
+
+- `self._cache` should always be **replaced** (recomputed from full data) — this is correct.
+- **Stateful data** (zones, pending orders, counters) must be **preserved**, not wiped.
+
+```python
+# ❌ WRONG — zones wiped on every new bar in live mode
+def on_start(self, data, htf_data=None):
+    self._cache = { ... }  # fine — recompute indicators
+    self._zones = []       # BUG — erases unfilled zones
+
+# ✅ CORRECT — zones preserved across recalibrations
+def on_start(self, data, htf_data=None):
+    self._cache = { ... }  # fine — recompute indicators
+    if not hasattr(self, "_zones"):
+        self._zones = []   # only initialize once
+```

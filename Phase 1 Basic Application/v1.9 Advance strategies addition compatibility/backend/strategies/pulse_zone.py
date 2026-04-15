@@ -98,32 +98,16 @@ class PulseZoneStrategy(BaseStrategy):
     )
     config_model = PulseZoneConfig
 
-    def __init__(self, settings=None):
-        super().__init__(settings)
-        # ── Persistent state — survives on_start recalibration ──
-        # Zones must persist across bar loops and live re-calibrations.
-        # on_start only recomputes the indicator cache; it NEVER resets
-        # _zones, so active zones are not destroyed when the MTF engine
-        # calls on_start again on each new bar close.
-        self._zones = []          # list of active unfilled zones
-        self._cache = None        # indicator arrays (rebuilt in on_start)
-        self._bar_seconds = None  # TF duration in seconds (for time-based expiry)
-
     # ─── Indicator Pre-computation ──────────────────────────────
     def on_start(self, data: pd.DataFrame, htf_data=None):
         """
-        Called ONCE before the bar loop begins, and again by the MTF live
-        engine whenever new bars arrive (cache recalibration).
-
-        IMPORTANT: Only the indicator cache is rebuilt here.
-        self._zones is intentionally NOT reset — active zones must
-        survive cache recalibrations so that zone fills are detected
-        correctly across the historical→live boundary.
+        Called ONCE before the bar loop.
+        Pre-compute ALL indicators and store in self._cache.
         """
         cfg = self.config
         close = data["close"].values.astype(float)
-        high  = data["high"].values.astype(float)
-        low   = data["low"].values.astype(float)
+        high = data["high"].values.astype(float)
+        low = data["low"].values.astype(float)
         n = len(close)
 
         # ── EMA ─────────────────────────────────────────────────
@@ -160,22 +144,8 @@ class PulseZoneStrategy(BaseStrategy):
             "tr": tr,
         }
 
-        # ── Bar duration (seconds) — used for time-based zone expiry ──
-        # Compute from the first two bars of data. Robust to any TF.
-        if n >= 2:
-            try:
-                t0 = data.iloc[0]["time"]
-                t1 = data.iloc[1]["time"]
-                delta = (t1 - t0)
-                # Works for both pd.Timedelta and datetime.timedelta
-                secs = delta.total_seconds() if hasattr(delta, "total_seconds") else float(delta) / 1e9
-                self._bar_seconds = secs if secs > 0 else None
-            except Exception:
-                self._bar_seconds = None
-
-        # NOTE: self._zones deliberately NOT reset here.
-        # Any active zones from a prior historical scan or live poll
-        # must remain valid after cache recalibration.
+        # Active unfilled zones — instance state carried across bars
+        self._zones = []
 
     # ─── Bar-by-bar Logic ───────────────────────────────────────
     def on_bar(self, index: int, data: pd.DataFrame):
@@ -185,10 +155,9 @@ class PulseZoneStrategy(BaseStrategy):
         Flow:
           1. Determine pulse (EMA relationship)
           2. Detect EMA 50 crossover + candle color → create zone
-          3. Expire old zones (time-based, index-agnostic)
-          4. Check existing zones for fills → generate signal
+          3. Check existing zones for fills → generate signal
         """
-        cfg   = self.config
+        cfg = self.config
         cache = getattr(self, "_cache", None)
         if cache is None:
             return "HOLD"
@@ -198,10 +167,10 @@ class PulseZoneStrategy(BaseStrategy):
         if index < min_bars:
             return "HOLD"
 
-        ef  = cache["ema_fast"]
-        es  = cache["ema_slow"]
+        ef = cache["ema_fast"]
+        es = cache["ema_slow"]
         atr = cache["atr"]
-        tr  = cache["tr"]
+        tr = cache["tr"]
 
         # Guard against NaN indicators
         if np.isnan(ef[index]) or np.isnan(es[index]) or np.isnan(atr[index]):
@@ -209,36 +178,36 @@ class PulseZoneStrategy(BaseStrategy):
         if np.isnan(ef[index - 1]) or np.isnan(es[index - 1]):
             return "HOLD"
 
-        bar      = data.iloc[index]
+        bar = data.iloc[index]
         prev_bar = data.iloc[index - 1]
 
-        close       = float(bar["close"])
-        open_price  = float(bar["open"])
-        high        = float(bar["high"])
-        low         = float(bar["low"])
-        prev_close  = float(prev_bar["close"])
-        current_time = bar["time"]  # absolute Pandas Timestamp — index-agnostic
+        close = float(bar["close"])
+        open_price = float(bar["open"])
+        high = float(bar["high"])
+        low = float(bar["low"])
+        prev_close = float(prev_bar["close"])
 
         ema_fast_now = ef[index]
         ema_slow_now = es[index]
         ema_slow_prev = es[index - 1]
-        atr_now  = atr[index]
-        tr_now   = tr[index]
+        atr_now = atr[index]
+        tr_now = tr[index]
 
         # ── Step 1: Pulse detection ─────────────────────────────
+        # Positive = uptrend, Negative = downtrend, None = crossover
         if ema_fast_now > ema_slow_now:
             pulse = "positive"
         elif ema_fast_now < ema_slow_now:
             pulse = "negative"
         else:
-            pulse = None  # crossover — no action
+            pulse = None  # Crossover — no action
 
         # ── Step 2: Candle color ────────────────────────────────
         is_green = close > open_price
-        is_red   = close < open_price
+        is_red = close < open_price
 
         # ── Step 3: Zone creation on EMA 50 crossover ───────────
-        # BUY zone: price crosses ABOVE EMA 50 + positive pulse + green candle
+        # Price crosses ABOVE EMA 50 + Positive Pulse + Green candle
         if (pulse == "positive"
                 and is_green
                 and prev_close <= ema_slow_prev
@@ -247,13 +216,13 @@ class PulseZoneStrategy(BaseStrategy):
 
             zone_price = close - atr_now
             self._zones.append({
-                "type":             "buy",
-                "zone_price":       zone_price,
-                "atr_at_creation":  atr_now,
-                "created_time":     current_time,   # absolute time — survives reindex
+                "type": "buy",
+                "zone_price": zone_price,
+                "atr_at_creation": atr_now,
+                "created_bar": index,
             })
 
-        # SELL zone: price crosses BELOW EMA 50 + negative pulse + red candle
+        # Price crosses BELOW EMA 50 + Negative Pulse + Red candle
         if (pulse == "negative"
                 and is_red
                 and prev_close >= ema_slow_prev
@@ -262,56 +231,56 @@ class PulseZoneStrategy(BaseStrategy):
 
             zone_price = close + atr_now
             self._zones.append({
-                "type":             "sell",
-                "zone_price":       zone_price,
-                "atr_at_creation":  atr_now,
-                "created_time":     current_time,
+                "type": "sell",
+                "zone_price": zone_price,
+                "atr_at_creation": atr_now,
+                "created_bar": index,
             })
 
-        # ── Step 4: Expire old zones (time-based, NOT index-based) ──
-        # Using absolute timestamps avoids stale indices after DataFrame
-        # trim + reset_index in the MTF live engine's process_latest_data.
-        bar_secs = self._bar_seconds
-        if bar_secs and bar_secs > 0:
-            self._zones = [
-                z for z in self._zones
-                if (current_time - z["created_time"]).total_seconds() / bar_secs
-                   <= cfg.zone_validity_bars
-            ]
-        # If bar_secs not yet computed (very short data), skip expiry for now.
+        # ── Step 4: Expire old zones ────────────────────────────
+        self._zones = [
+            z for z in self._zones
+            if (index - z["created_bar"]) <= cfg.zone_validity_bars
+        ]
 
         # ── Step 5: Check zone fills ────────────────────────────
-        # TR/ATR filter applies to the whole bar — skip all zones if volatile
-        if tr_now > atr_now * cfg.tr_atr_filter:
-            return "HOLD"
+        # Process oldest zone first (FIFO order)
+        for zone in self._zones:
+            # Skip zones created THIS bar (price must retrace on a later bar)
+            if zone["created_bar"] == index:
+                continue
 
-        # Process oldest zone first (FIFO)
-        for zone in list(self._zones):  # iterate copy — safe to mutate original
-            # Skip zones created on this exact bar (retrace must be a later bar)
-            if zone["created_time"] == current_time:
+            # TR vs ATR filter — reject abnormally volatile bars
+            if tr_now > atr_now * cfg.tr_atr_filter:
                 continue
 
             zone_atr = zone["atr_at_creation"]
 
             if zone["type"] == "buy":
+                # Price retraces DOWN to buy zone
                 if low <= zone["zone_price"]:
                     entry = zone["zone_price"]
-                    sl    = entry - zone_atr
-                    risk  = entry - sl
+                    sl = entry - zone_atr
+                    risk = entry - sl
                     if risk <= 0:
                         continue
                     tp = entry + (risk * cfg.rr_ratio)
+
+                    # Remove this zone (filled)
                     self._zones.remove(zone)
                     return ("BUY", round(sl, 6), round(tp, 6))
 
             elif zone["type"] == "sell":
+                # Price retraces UP to sell zone
                 if high >= zone["zone_price"]:
                     entry = zone["zone_price"]
-                    sl    = entry + zone_atr
-                    risk  = sl - entry
+                    sl = entry + zone_atr
+                    risk = sl - entry
                     if risk <= 0:
                         continue
                     tp = entry - (risk * cfg.rr_ratio)
+
+                    # Remove this zone (filled)
                     self._zones.remove(zone)
                     return ("SELL", round(sl, 6), round(tp, 6))
 

@@ -122,6 +122,25 @@ async def upload_strategy(file: UploadFile = File(...), request: Request = None)
     # ── 4. Load and validate class ────────────────────────────────
     try:
         import builtins as _builtins
+
+        # Whitelist of modules strategy files are allowed to import.
+        # This is enforced by _safe_import below — stronger than string scan
+        # because it also blocks 'from os import system' style bypasses.
+        _ALLOWED_MODULES = {
+            'numpy', 'np', 'pandas', 'pd', 'math', 'typing', 'datetime',
+            'pydantic', 'abc', 'enum', 'collections', 'itertools', 'functools',
+            'strategies._template', 'strategies', '__future__',
+        }
+
+        def _safe_import(name, globals=None, locals=None, fromlist=(), level=0):
+            base = name.split('.')[0]
+            if base not in _ALLOWED_MODULES:
+                raise ImportError(
+                    f"Strategy cannot import '{name}'. "
+                    f"Allowed libraries: numpy, pandas, math, typing, pydantic, datetime."
+                )
+            return __import__(name, globals, locals, fromlist, level)
+
         _safe_builtins = {k: getattr(_builtins, k) for k in [
             'True', 'False', 'None', 'int', 'float', 'str', 'bool', 'list',
             'dict', 'tuple', 'set', 'range', 'len', 'max', 'min', 'abs',
@@ -131,12 +150,15 @@ async def upload_strategy(file: UploadFile = File(...), request: Request = None)
             'setattr', 'ValueError', 'TypeError', 'KeyError', 'IndexError',
             'AttributeError', 'Exception', 'RuntimeError', 'StopIteration',
         ]}
+        # Allow import statements (controlled via _safe_import whitelist above)
+        # and class definitions (__build_class__ is required for any class keyword)
+        _safe_builtins['__import__']      = _safe_import
+        _safe_builtins['__build_class__'] = __build_class__
+
         module = types.ModuleType(file.filename[:-3])
-        # Restrict builtins BEFORE injecting anything else
         module.__dict__['__builtins__'] = _safe_builtins
-        # Make strategy template available in module namespace
         import strategies._template as _tpl
-        module.__dict__["BaseStrategy"] = _tpl.BaseStrategy
+        module.__dict__["BaseStrategy"]   = _tpl.BaseStrategy
         module.__dict__["StrategyConfig"] = _tpl.StrategyConfig
         exec(compile(source, file.filename, "exec"), module.__dict__)
     except Exception as e:

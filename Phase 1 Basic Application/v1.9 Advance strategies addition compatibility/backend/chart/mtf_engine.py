@@ -87,6 +87,7 @@ class MTFLiveEngine:
         self._rolling_df: Dict[str, pd.DataFrame] = {}
         self.active_trades: Dict[str, List[Dict]] = {tf: [] for tf in timeframes}
         self._HISTORY_BARS = 3000
+        self._LIVE_POLL_BARS = 20  # only fetch recent tail on live polls
 
         self._running = False
         self._ws_running = True
@@ -452,11 +453,11 @@ class MTFLiveEngine:
         signals = []
         updates = []
 
-        # 1. Pre-fetch all required live data
+        # 1. Pre-fetch all required live data (small tail only)
         latest_dfs = {}
         for tf in self.active_data_tfs:
             try:
-                df_latest = self.provider.fetch_latest_bars(self.symbol, tf, self._HISTORY_BARS)
+                df_latest = self.provider.fetch_latest_bars(self.symbol, tf, self._LIVE_POLL_BARS)
                 if not df_latest.empty:
                     latest_dfs[tf] = df_latest
             except Exception:
@@ -469,7 +470,38 @@ class MTFLiveEngine:
 
             df_latest = latest_dfs[tf]
             old_df = self._rolling_df.get(tf)
-            self._rolling_df[tf] = df_latest.copy()
+
+            # Snapshot last time BEFORE merge modifies/reassigns old_df
+            _old_last_time = old_df.iloc[-1]["time"] if (old_df is not None and not old_df.empty) else None
+
+            # Merge into rolling_df instead of replacing it
+            # Same merge pattern as WatchlistEngine._fetch_latest()
+            if old_df is not None and not old_df.empty and "time" in old_df.columns:
+                existing_times = set(old_df["time"].astype(str))
+                new_rows = []
+                for _, row in df_latest.iterrows():
+                    t_str = str(row["time"])
+                    if t_str in existing_times:
+                        # Update the live/forming bar in-place
+                        mask = old_df["time"].astype(str) == t_str
+                        if mask.any():
+                            idx = old_df.index[mask][0]
+                            for col in ["open", "high", "low", "close", "volume", "spread"]:
+                                if col in row.index:
+                                    old_df.at[idx, col] = row[col]
+                    else:
+                        new_rows.append(row)
+                if new_rows:
+                    new_df = pd.DataFrame(new_rows)
+                    old_df = pd.concat([old_df, new_df], ignore_index=True)
+                # Keep bounded — trim to last _HISTORY_BARS
+                if len(old_df) > self._HISTORY_BARS:
+                    old_df = old_df.iloc[-self._HISTORY_BARS:].reset_index(drop=True)
+                self._rolling_df[tf] = old_df
+            else:
+                # No existing data — fall back to what we have
+                self._rolling_df[tf] = df_latest.copy()
+
             df = self._rolling_df[tf]
             strategy = self.strategies[tf]
 
@@ -477,23 +509,45 @@ class MTFLiveEngine:
             htf_data = {}
             for rtf in getattr(self.strategy_cls, "required_timeframes", []):
                 if rtf in latest_dfs:
-                    self._rolling_df[rtf] = latest_dfs[rtf].copy()
+                    # Merge HTF data the same way
+                    htf_old = self._rolling_df.get(rtf)
+                    htf_new = latest_dfs[rtf]
+                    if htf_old is not None and not htf_old.empty and "time" in htf_old.columns:
+                        htf_existing_times = set(htf_old["time"].astype(str))
+                        htf_new_rows = []
+                        for _, row in htf_new.iterrows():
+                            t_str = str(row["time"])
+                            if t_str in htf_existing_times:
+                                mask = htf_old["time"].astype(str) == t_str
+                                if mask.any():
+                                    idx_h = htf_old.index[mask][0]
+                                    for col in ["open", "high", "low", "close", "volume", "spread"]:
+                                        if col in row.index:
+                                            htf_old.at[idx_h, col] = row[col]
+                            else:
+                                htf_new_rows.append(row)
+                        if htf_new_rows:
+                            htf_new_df = pd.DataFrame(htf_new_rows)
+                            htf_old = pd.concat([htf_old, htf_new_df], ignore_index=True)
+                        if len(htf_old) > self._HISTORY_BARS:
+                            htf_old = htf_old.iloc[-self._HISTORY_BARS:].reset_index(drop=True)
+                        self._rolling_df[rtf] = htf_old
+                    else:
+                        self._rolling_df[rtf] = htf_new.copy()
                 if rtf in self._rolling_df and rtf != tf:
                     htf_data[rtf] = self._rolling_df[rtf]
 
-            # Determine indexes to process
-            if old_df is None or old_df.empty:
+            # Determine indexes to process (uses pre-merge snapshot)
+            if _old_last_time is None:
                 idxs_to_process = [len(df) - 1]
                 re_run_start = True
             else:
-                old_last_time = old_df.iloc[-1]["time"]
                 curr_last_time = df.iloc[-1]["time"]
-                
-                if curr_last_time == old_last_time:
+                if curr_last_time == _old_last_time:
                     idxs_to_process = [len(df) - 1]
                     re_run_start = False
                 else:
-                    idxs_to_process = df.index[df["time"] >= old_last_time].tolist()
+                    idxs_to_process = df.index[df["time"] >= _old_last_time].tolist()
                     re_run_start = True
 
             # Recalibrate strategy cache, dynamically passing HTF if required

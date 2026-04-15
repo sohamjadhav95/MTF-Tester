@@ -16,6 +16,7 @@ import sqlite3
 import uuid
 import json
 import hashlib
+import time
 from datetime import datetime, timezone
 from typing import Optional
 from pathlib import Path
@@ -24,6 +25,12 @@ from main.config import DATABASE_PATH
 from main.logger import get_logger
 
 log = get_logger("db")
+
+# ── Session Cache (in-memory, TTL-based) ───────────────────────────────
+# Each entry: token_hash → (session_dict | None, expires_at_monotonic)
+# Avoids a full SQLite round-trip on every authenticated request.
+_SESSION_CACHE: dict = {}
+_SESSION_CACHE_TTL = 60  # seconds — re-validate from DB after this long
 
 # ── Connection ─────────────────────────────────────────────────────────
 # check_same_thread=False is safe here because we use per-operation
@@ -199,9 +206,20 @@ def create_session(user_id: str, raw_token: str, ip_address: str = None,
 def validate_session(raw_token: str) -> Optional[dict]:
     """
     Validate a raw token. Returns user_id + session info if valid, None if expired/invalid.
-    Called on every authenticated request.
+    Called on every authenticated request — uses an in-memory TTL cache to avoid
+    a SQLite round-trip on every request (was causing 2s page load delays).
     """
     token_hash = _hash_token(raw_token)
+    now_mono = time.monotonic()
+
+    # Cache hit — return cached result if still fresh
+    cached = _SESSION_CACHE.get(token_hash)
+    if cached is not None:
+        session, cache_expires = cached
+        if now_mono < cache_expires:
+            return session  # None means "known invalid" — also cached
+
+    # Cache miss or stale — hit SQLite
     now = _now_utc()
     conn = _get_conn()
     try:
@@ -213,9 +231,13 @@ def validate_session(raw_token: str) -> Optional[dict]:
                WHERE s.token_hash = ? AND s.expires_at > ? AND u.is_active = 1""",
             (token_hash, now)
         ).fetchone()
-        return dict(row) if row else None
+        session = dict(row) if row else None
     finally:
         conn.close()
+
+    # Store in cache (including None so we don't hammer DB for bad tokens)
+    _SESSION_CACHE[token_hash] = (session, now_mono + _SESSION_CACHE_TTL)
+    return session
 
 def update_session_state(session_id: str, last_panel: str = None,
                          last_symbol: str = None, last_tf: str = None,
@@ -243,6 +265,13 @@ def update_session_state(session_id: str, last_panel: str = None,
 def delete_session(session_id: str):
     conn = _get_conn()
     try:
+        # Get token_hash first so we can evict the cache entry
+        row = conn.execute(
+            "SELECT token_hash FROM sessions WHERE id = ?", (session_id,)
+        ).fetchone()
+        if row:
+            _SESSION_CACHE.pop(row["token_hash"], None)
+
         conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
         conn.commit()
     finally:
