@@ -39,15 +39,6 @@ document.addEventListener('DOMContentLoaded', () => {
     initWatchlistPanel();
     connectGlobalSignalWS();
 
-    // One-time form submit handler — never re-added on strategy refresh
-    const launchForm = document.getElementById('mtf-config-form');
-    if (launchForm) {
-        launchForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            handleLaunchScanner();
-        });
-    }
-
     // ── Logout ────────────────────────────────────────────────
     document.getElementById('logout-btn').addEventListener('click', async () => {
         const ok = await showConfirm('Logout', 'End your session and return to login?');
@@ -325,10 +316,14 @@ async function loadStrategies() {
         if (!sel) return;
         sel.innerHTML = _strategies.map(s => `<option value="${s.name}">${s.name}</option>`).join('');
 
-        // Use .onchange (not addEventListener) so re-calls don't stack handlers
-        sel.onchange = () => renderStratSettings(sel.value);
+        sel.addEventListener('change', () => renderStratSettings(sel.value));
         if (_strategies.length > 0) renderStratSettings(_strategies[0].name);
 
+        // Launch form
+        document.getElementById('mtf-config-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            handleLaunchScanner();
+        });
     } catch (err) {
         console.error('Failed to load strategies:', err);
     }
@@ -585,9 +580,9 @@ async function handleLaunchScanner() {
         const signals = data.historical_signals || [];
         showToast(`✓ Scanner "${name}" started — ${signals.length} historical signals loaded`, 'success');
 
-        // Store historical signals — stamp scanner_id on each so panel routing is ID-based
-        _activeScanners[scannerId].signals = signals.map(s => ({ ...s, scanner_id: scannerId }));
-        for (const sig of _activeScanners[scannerId].signals) {
+        // Store historical signals and pre-populate scanner panel
+        _activeScanners[scannerId].signals = [...signals];
+        for (const sig of signals) {
             addSignalToScannerPanel(sig);
         }
 
@@ -623,12 +618,6 @@ async function stopScanner(scannerId) {
             body: JSON.stringify({ scanner_id: scannerId }),
         });
     } catch(e) {}
-
-    // Clean up: remove this scanner's signal IDs from the global dedup Set
-    const sc = _activeScanners[scannerId];
-    if (sc && sc.signals) {
-        sc.signals.forEach(s => { if (s.id) _renderedSignalIds.delete(s.id); });
-    }
 
     delete _activeScanners[scannerId];
     removeScannerNavAndPanel(scannerId);
@@ -854,20 +843,19 @@ function removeScannerNavAndPanel(scannerId) {
  * Matches by scanner ID (via strategy name) or creates orphan panel.
  */
 function addSignalToScannerPanel(sig) {
-    // Route by scanner_id first (reliable), fall back to strategy+symbol match
-    let scannerId = sig.scanner_id || null;
+    const stratName = sig.strategy || 'Unknown';
+    let scannerId = null;
 
-    if (!scannerId) {
-        for (const [sid, sc] of Object.entries(_activeScanners)) {
-            if (sc.strategyName === (sig.strategy || '') && sc.symbol === sig.symbol) {
-                scannerId = sid;
-                break;
-            }
+    // Find matching scanner by strategy name
+    for (const [sid, sc] of Object.entries(_activeScanners)) {
+        if (sc.strategyName === stratName) {
+            scannerId = sid;
+            break;
         }
     }
 
     // If no scanner found, ignore — don't create orphan panels
-    if (!scannerId || !_activeScanners[scannerId]) return;
+    if (!scannerId) return;
 
     // Store live signal in scanner's signal store for late-added charts
     if (_activeScanners[scannerId] && _activeScanners[scannerId].signals) {
@@ -881,12 +869,14 @@ function addSignalToScannerPanel(sig) {
     const empty = signalsBody.querySelector('.scanner-signals-empty');
     if (empty) empty.remove();
 
-    // Update badge counts with a local variable (not DOM re-read)
+    // Update badge counts
     const navBadge = document.getElementById(`nav-badge-${scannerId}`);
     const panelCount = document.getElementById(`panel-sig-count-${scannerId}`);
-    const currentCount = parseInt(navBadge?.textContent || '0') + 1;
-    if (navBadge) navBadge.textContent = currentCount;
-    if (panelCount) panelCount.textContent = `${currentCount} signal${currentCount !== 1 ? 's' : ''}`;
+    if (navBadge) navBadge.textContent = parseInt(navBadge.textContent || '0') + 1;
+    if (panelCount) {
+        const c = parseInt(navBadge?.textContent || '0');
+        panelCount.textContent = `${c} signal${c !== 1 ? 's' : ''}`;
+    }
 
     const cls = sig.direction === 'BUY' ? 'long' : 'short';
     const status = sig.status || 'RUNNING';
@@ -1021,12 +1011,7 @@ function _addSignalMarkerToChart(watchId, sig) {
     const w = _watchCharts[watchId];
     const chartTf = w ? w.tf : null;
 
-    // Use session name (user-defined) for marker label instead of strategy class name
-    const sessionName = (sig.scanner_id && _activeScanners[sig.scanner_id]?.name)
-        || sig.session_name
-        || sig.strategy
-        || '';
-    const stratLabel = sessionName ? `${sessionName}: ${sig.direction}` : sig.direction;
+    const stratLabel = sig.strategy ? `${sig.strategy}: ${sig.direction}` : sig.direction;
 
     // Floor signal timestamp to chart's bar boundary so marker aligns to an existing bar
     const rawTs = _toChartTs(sig.bar_time || sig.time);

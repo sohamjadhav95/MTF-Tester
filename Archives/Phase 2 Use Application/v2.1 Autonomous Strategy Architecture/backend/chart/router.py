@@ -433,16 +433,12 @@ async def start_scanner(req: MTFStartRequest, request: Request):
     _scanner_counter += 1
     scanner_id = f"scan-{_scanner_counter}"
 
-    session_name = req.settings.get("_name", f"{req.symbol} {req.strategy_name}")
-
     engine = MTFLiveEngine(
         symbol=req.symbol,
         strategy_name=req.strategy_name,
         settings=req.settings,
         provider=provider,
         broadcast_callback=None,  # No WS broadcast — signals go through SignalBus
-        scanner_id=scanner_id,
-        session_name=session_name,
     )
 
     # Fetch historical signals synchronously (no candles, no indicators)

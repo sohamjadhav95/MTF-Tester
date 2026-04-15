@@ -49,17 +49,12 @@ class LiveScanEngine:
         settings: Dict,
         provider,
         broadcast_callback: Optional[Callable] = None,
-        scanner_id: str = "",
-        session_name: str = "",
     ):
         self.symbol = symbol
         self.strategy_name = strategy_name
         self.settings = settings
         self.provider = provider
         self.broadcast_callback = broadcast_callback
-        self.scanner_id = scanner_id
-        # Session name shown on chart markers (user-defined, e.g. "XAUUSD Scalper")
-        self.session_name = session_name or strategy_name
 
         from chart.registry import auto_discover_strategies
         registry = auto_discover_strategies()
@@ -186,8 +181,6 @@ class LiveScanEngine:
                     trade = {
                         "id": str(uuid.uuid4()),
                         "type": "signal",
-                        "scanner_id": self.scanner_id,
-                        "session_name": self.session_name,
                         "symbol": self.symbol,
                         "timeframe": self._signal_tf,
                         "strategy": self.strategy_name,
@@ -314,8 +307,6 @@ class LiveScanEngine:
                     trade = {
                         "id": str(uuid.uuid4()),
                         "type": "signal",
-                        "scanner_id": self.scanner_id,
-                        "session_name": self.session_name,
                         "symbol": self.symbol,
                         "timeframe": self._signal_tf,
                         "strategy": self.strategy_name,
@@ -426,8 +417,6 @@ class LiveScanEngine:
                 sig = {
                     "id": str(uuid.uuid4()),
                     "type": "signal",
-                    "scanner_id": self.scanner_id,
-                    "session_name": self.session_name,
                     "symbol": self.symbol,
                     "timeframe": self._signal_tf,
                     "strategy": self.strategy_name,
@@ -444,7 +433,7 @@ class LiveScanEngine:
                         asyncio.run_coroutine_threadsafe(self._publish(sig), loop)
                 except Exception:
                     pass
-                log.info(f"Signal | {self.session_name} | {direction} {self.symbol} [{self._signal_tf}] @ {bar['close']}")
+                log.info(f"Signal | {direction} {self.symbol} [{self._signal_tf}] @ {bar['close']}")
         except Exception:
             pass
 
