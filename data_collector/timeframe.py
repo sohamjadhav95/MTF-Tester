@@ -21,10 +21,11 @@ def initialize(tf):
         low="min",
         close="last"
     ).reset_index()
-
+    forming_candle = ohlc.iloc[-1].to_dict()
+    ohlc.drop(ohlc.index[-1], inplace=True)     # drop last row; avoid inconsistancy
     ohlc.to_csv(OHLC_FILE, index=False)
 
-    return len(df), ohlc.iloc[-1].to_dict()
+    return len(df), forming_candle
 
 
 def run(tf):
