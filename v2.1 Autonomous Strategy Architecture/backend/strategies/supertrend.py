@@ -123,14 +123,3 @@ class Supertrend(BaseStrategy):
                 return "SELL"
         return "HOLD"
 
-    def get_indicator_data(self, data: pd.DataFrame) -> dict:
-        cache = self._cache
-        if not cache:
-            return {}
-        n = len(data)
-        st_m1 = [None] * n
-        for i, h_idx in enumerate(cache["m1_to_htf"]):
-            if i < n and 0 <= h_idx < len(cache["st"]):
-                v = cache["st"][h_idx]
-                st_m1[i] = None if np.isnan(v) else round(float(v), 6)
-        return {"Supertrend": st_m1}

@@ -118,15 +118,3 @@ class VWAPCrossStrategy(BaseStrategy):
             tp = round(entry - a * cfg.rr_ratio, 6)
             return ("SELL", sl, tp)
         return "HOLD"
-
-    def get_indicator_data(self, data: pd.DataFrame) -> dict:
-        cache = self._cache
-        if not cache:
-            return {}
-        n = len(data)
-        vwap_m1 = [None] * n
-        for i, h_idx in enumerate(cache["m1_to_htf"]):
-            if i < n and 0 <= h_idx < len(cache["vwap"]):
-                v = cache["vwap"][h_idx]
-                vwap_m1[i] = None if np.isnan(v) else round(float(v), 6)
-        return {"VWAP": vwap_m1}

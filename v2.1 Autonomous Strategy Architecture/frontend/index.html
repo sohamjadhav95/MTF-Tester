@@ -184,7 +184,6 @@
                 <div class="panel-header">
                     <span class="panel-header-title">Charts</span>
                     <div class="panel-header-actions">
-                        <button class="btn btn-ghost btn-sm" id="global-indicator-btn" onclick="openGlobalIndicatorModal()" title="Manage Indicators">📊 Indicators</button>
                         <span class="badge badge-muted" id="charts-count-badge">0 / 6</span>
                     </div>
                 </div>
@@ -206,9 +205,6 @@
                         </div>
                         <button class="btn btn-primary btn-sm" id="watch-add-btn" onclick="handleAddWatchChart()">+ Add Chart</button>
                     </div>
-
-                    <!-- Global Indicator Chips Bar -->
-                    <div class="global-indicator-bar" id="global-indicator-bar" style="display:none;"></div>
 
                     <!-- Chart Grid -->
                     <div class="watch-chart-grid" id="watch-chart-grid">
@@ -352,10 +348,7 @@ class MyStrategy(BaseStrategy):
         if index &lt; 2: return "HOLD"
         return "HOLD"
 
-    def get_indicator_data(self, data: pd.DataFrame) -> dict:
-        # Return {label: [float_or_None, ...]} same length as data
-        # Labels with rsi/macd/stoch/volume → separate pane
-        return { "EMA Fast": [...], "EMA Slow": [...] }</pre>
+</pre>
                             </div>
                             <div class="strat-guide-section">
                                 <strong>Signal return values:</strong>
@@ -529,46 +522,11 @@ class MyStrategy(BaseStrategy):
 <!-- ═══ TOASTS ════════════════════════════════════════════════ -->
 <div class="toast-container" id="toast-container"></div>
 
-<!-- ═══ INDICATOR PICKER MODAL ═════════════════════════════════ -->
-<div class="indicator-modal-overlay" id="indicator-modal" onclick="if(event.target===this)closeIndicatorModal()">
-    <div class="indicator-modal">
-        <div class="indicator-modal-header">
-            <h3 class="indicator-modal-title">Indicators</h3>
-            <button class="indicator-modal-close" onclick="closeIndicatorModal()">&times;</button>
-        </div>
-        <div class="indicator-search-wrap">
-            <input type="text" class="indicator-search" id="indicator-search"
-                   placeholder="Search indicators..." oninput="handleIndicatorSearch()" autocomplete="off">
-        </div>
-        <div class="indicator-cat-tabs" id="indicator-categories">
-            <span class="indicator-cat-tab active" data-cat="all" onclick="handleIndicatorCategoryTab(this)">All</span>
-            <span class="indicator-cat-tab" data-cat="trend" onclick="handleIndicatorCategoryTab(this)">Trend</span>
-            <span class="indicator-cat-tab" data-cat="oscillator" onclick="handleIndicatorCategoryTab(this)">Oscillator</span>
-            <span class="indicator-cat-tab" data-cat="volume" onclick="handleIndicatorCategoryTab(this)">Volume</span>
-        </div>
-        <div class="indicator-list" id="indicator-list"></div>
-    </div>
-</div>
-
-<!-- ═══ INDICATOR SETTINGS PANEL ═══════════════════════════════ -->
-<div class="indicator-settings-overlay" id="indicator-settings-panel" onclick="if(event.target===this)closeIndicatorSettings()">
-    <div class="indicator-settings-panel">
-        <div class="ind-settings-header">
-            <span class="ind-settings-title">Indicator Settings</span>
-            <button class="ind-settings-close" onclick="closeIndicatorSettings()">&times;</button>
-        </div>
-        <div class="ind-settings-body"></div>
-        <div class="ind-settings-footer">
-            <button class="btn btn-secondary btn-sm" onclick="removeFromSettings()">Remove</button>
-            <button class="btn btn-primary btn-sm" onclick="applyIndicatorSettings()">Apply</button>
-        </div>
-    </div>
-</div>
 
 <!-- ═══ SCRIPTS ═══════════════════════════════════════════════ -->
 <script src="https://unpkg.com/lightweight-charts@4.2.2/dist/lightweight-charts.standalone.production.js"></script>
 <script src="/js/core.js"></script>
-<script src="/js/indicators.js"></script>
+
 <script src="/js/dashboard.js"></script>
 
 </body>

@@ -135,20 +135,6 @@ class BaseStrategy(ABC):
         """
         ...
 
-    def get_indicator_data(self, data: pd.DataFrame) -> dict:
-        """
-        Return indicator values for chart overlay. Called after backtest.
-
-        Returns dict where:
-          key   = indicator label (shown in legend)
-          value = list of float or None, SAME LENGTH as data (M1 bars)
-
-        Naming hint:
-          Contains "rsi", "macd", "stoch", "oscillator", "histogram"
-            → renders in separate pane below chart
-          Everything else → overlaid on price chart
-        """
-        return {}
 
     # ─── Helpers available to all strategies ────────────────────
 

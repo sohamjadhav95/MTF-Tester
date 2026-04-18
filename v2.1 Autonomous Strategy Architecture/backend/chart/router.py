@@ -407,6 +407,7 @@ async def start_scanner(req: MTFStartRequest, request: Request):
         settings=req.settings,
         provider=provider,
         broadcast_callback=None,  # No WS broadcast — signals go through SignalBus
+        display_name=req.name or f"{req.symbol} {req.strategy_name}",
     )
 
     # Fetch historical signals synchronously (no candles, no indicators)
@@ -421,7 +422,7 @@ async def start_scanner(req: MTFStartRequest, request: Request):
     # Store engine and metadata
     _active_scanners[scanner_id] = engine
     _scanner_meta[scanner_id] = {
-        "name": req.settings.get("_name", f"{req.symbol} {req.strategy_name}"),
+        "name": req.name or req.settings.get("_name", f"{req.symbol} {req.strategy_name}"),
         "symbol": req.symbol,
         "timeframe": "M1",             # Always M1
         "strategy_name": req.strategy_name,

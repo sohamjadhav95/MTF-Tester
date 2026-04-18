@@ -88,18 +88,3 @@ class EMACrossover(BaseStrategy):
             return "SELL"
         return "HOLD"
 
-    def get_indicator_data(self, data: pd.DataFrame) -> dict:
-        cache = self._cache
-        if not cache:
-            return {}
-        cfg = self.config
-        n = len(data)
-        fast_m1 = [None] * n
-        slow_m1 = [None] * n
-        for i, h_idx in enumerate(cache["m1_to_htf"]):
-            if i < n and 0 <= h_idx < len(cache["fast"]):
-                v = cache["fast"][h_idx]
-                fast_m1[i] = None if np.isnan(v) else round(float(v), 6)
-                v2 = cache["slow"][h_idx]
-                slow_m1[i] = None if np.isnan(v2) else round(float(v2), 6)
-        return {f"EMA {cfg.fast_period}": fast_m1, f"EMA {cfg.slow_period}": slow_m1}

@@ -35,6 +35,7 @@ class BacktestRequest(BaseModel):
 # ── MTF Scanner ────────────────────────────────────────────────────────
 class MTFStartRequest(BaseModel):
     symbol: str
+    name: Optional[str] = None
     strategy_name: str
     settings: dict = {}
     provider: Literal["mt5", "binance"] = "mt5"
@@ -45,13 +46,7 @@ class WatchStartRequest(BaseModel):
     timeframe: str
     provider: Literal["mt5", "binance"] = "mt5"
 
-# ── Chart Indicators ───────────────────────────────────────────────────
-class IndicatorAddRequest(BaseModel):
-    type: str               # sma, ema, bb, vwap, rsi, macd, volume
-    settings: dict = {}     # indicator-specific params (merged with defaults)
 
-class IndicatorUpdateRequest(BaseModel):
-    settings: dict          # updated params (merged with existing)
 
 # ── Orders ─────────────────────────────────────────────────────────────
 class OrderRequest(BaseModel):
@@ -116,20 +111,6 @@ class BacktestResult(BaseModel):
     trades: List[Trade]
     equity_curve: List[dict]
     metrics: dict
-    indicator_data: Any
     bar_data: List[dict]
 
-# ── IndicatorPlot (chart renderer contract) ────────────────────────────
-class IndicatorPlot(BaseModel):
-    id: str
-    label: str
-    pane: Literal["price", "separate"]
-    type: Literal["line", "histogram", "level", "markers", "band", "zone"]
-    color: str
-    values: List[dict]
-    band_upper: Optional[List[dict]] = None
-    band_lower: Optional[List[dict]] = None
-    zones: Optional[List[dict]] = None
-    line_style: Literal["solid", "dashed", "dotted"] = "solid"
-    line_width: int = 1
-    opacity: float = 1.0
+

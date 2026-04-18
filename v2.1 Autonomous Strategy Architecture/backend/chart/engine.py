@@ -97,35 +97,6 @@ class Backtester:
             last_bar = data.iloc[-1]
             self._close_position_reason(last_bar, self._get_spread(last_bar), len(data) - 1, "end")
 
-        # Get indicator data from strategy for chart overlay
-        indicator_data = {}
-        if hasattr(strategy, "get_indicator_data"):
-            try:
-                indicator_data = strategy.get_indicator_data(data)
-                
-                # Convert raw {name: [float]} to chart-ready {name: [{time, value}]}
-                formatted_indicators = {}
-                for name, values in (indicator_data or {}).items():
-                    if not values:
-                        continue
-                    fmt_points = []
-                    for idx, val in enumerate(values):
-                        if val is not None and idx < len(data):
-                            try:
-                                if isinstance(val, float) and (val != val):  # NaN check
-                                    continue
-                                t = data.iloc[idx]["time"]
-                                fmt_points.append({
-                                    "time":  (t.isoformat() + "Z") if hasattr(t, "isoformat") else str(t),
-                                    "value": round(float(val), 6),
-                                })
-                            except (TypeError, ValueError):
-                                continue
-                    if fmt_points:
-                        formatted_indicators[name] = fmt_points
-                indicator_data = formatted_indicators
-            except Exception:
-                indicator_data = {}
 
         # Convert bar data for frontend
         bar_data = []
@@ -160,7 +131,6 @@ class Backtester:
             trades=self.trades,
             equity_curve=self.equity_curve,
             metrics=metrics,
-            indicator_data=indicator_data,
             bar_data=bar_data,
         )
 

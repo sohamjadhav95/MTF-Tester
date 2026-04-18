@@ -49,12 +49,14 @@ class LiveScanEngine:
         settings: Dict,
         provider,
         broadcast_callback: Optional[Callable] = None,
+        display_name: Optional[str] = None,
     ):
         self.symbol = symbol
         self.strategy_name = strategy_name
         self.settings = settings
         self.provider = provider
         self.broadcast_callback = broadcast_callback
+        self.display_name = display_name or strategy_name
 
         from chart.registry import auto_discover_strategies
         registry = auto_discover_strategies()
@@ -191,6 +193,7 @@ class LiveScanEngine:
                         "symbol": self.symbol,
                         "timeframe": self._signal_tf,
                         "strategy": self.strategy_name,
+                        "scanner_name": self.display_name,
                         "direction": direction,
                         "price": float(bar["close"]),
                         "sl": sl,
@@ -324,6 +327,7 @@ class LiveScanEngine:
                         "symbol": self.symbol,
                         "timeframe": self._signal_tf,
                         "strategy": self.strategy_name,
+                        "scanner_name": self.display_name,
                         "direction": direction,
                         "price": float(row["close"]),
                         "sl": sl,
@@ -441,6 +445,7 @@ class LiveScanEngine:
                     "symbol": self.symbol,
                     "timeframe": self._signal_tf,
                     "strategy": self.strategy_name,
+                    "scanner_name": self.display_name,
                     "direction": direction,
                     "price": float(bar["close"]),
                     "sl": sl, "tp": tp,

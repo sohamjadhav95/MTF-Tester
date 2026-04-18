@@ -5,12 +5,6 @@ POST /api/watchlist/start     — Start live feed for symbol+timeframe, return h
 POST /api/watchlist/stop      — Stop a live feed by watch_id
 WS   /api/watchlist/ws/{id}   — Stream live bar updates (candles only) + receive signal markers
 
-Indicator endpoints (v1.9):
-GET    /api/watchlist/indicators/catalog       — Available indicator types + schemas
-POST   /api/watchlist/{watch_id}/indicators    — Add indicator to chart
-DELETE /api/watchlist/{watch_id}/indicators/{ind_id} — Remove indicator
-PUT    /api/watchlist/{watch_id}/indicators/{ind_id} — Update indicator settings
-GET    /api/watchlist/{watch_id}/indicators    — List active indicators with data
 
 These endpoints ONLY fetch data from the data collector and stream candles.
 No strategy involvement. Charts are independent of the strategy system.
@@ -20,11 +14,10 @@ import asyncio
 import json
 from fastapi import APIRouter, Request, HTTPException, WebSocket, WebSocketDisconnect
 
-from main.models import WatchStartRequest, IndicatorAddRequest, IndicatorUpdateRequest
+from main.models import WatchStartRequest
 from main.logger import get_logger
 from data_collector.router import get_mt5
 from watchlist.engine import WatchlistEngine
-from watchlist.indicators import INDICATOR_REGISTRY
 from signals.bus import SignalBus
 
 log = get_logger("watchlist")
@@ -126,133 +119,6 @@ async def stop_watch(request: Request):
     return {"success": False, "detail": "Watch not found"}
 
 
-# ── Indicator Endpoints ────────────────────────────────────────────────
-
-@router.get("/indicators/catalog")
-async def get_indicator_catalog():
-    """Return the full catalog of available indicators with settings schemas."""
-    return {"indicators": INDICATOR_REGISTRY}
-
-
-@router.post("/{watch_id}/indicators")
-async def add_indicator(watch_id: str, req: IndicatorAddRequest, request: Request):
-    """
-    Add an indicator to a chart. Computes from the engine's cached DataFrame
-    (same data source as the candle bars).
-    """
-    engine = _active_watches.get(watch_id)
-    if not engine:
-        raise HTTPException(status_code=404, detail="Watch not found")
-
-    # Validate indicator type
-    valid_types = {r["id"] for r in INDICATOR_REGISTRY}
-    if req.type not in valid_types:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unknown indicator type: {req.type}. Valid: {sorted(valid_types)}"
-        )
-
-    try:
-        result = await asyncio.to_thread(engine.add_indicator, req.type, req.settings)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Indicator computation failed: {e}")
-
-    # Broadcast to all connected WS clients so all chart instances update
-    ws_list = _watch_websockets.get(watch_id, [])
-    if ws_list:
-        msg = {"type": "indicator_added", "data": result}
-        dead = []
-        for ws in ws_list:
-            try:
-                await ws.send_json(msg)
-            except Exception:
-                dead.append(ws)
-        for ws in dead:
-            ws_list.remove(ws)
-
-    return result
-
-
-@router.delete("/{watch_id}/indicators/{indicator_id}")
-async def remove_indicator(watch_id: str, indicator_id: str, request: Request):
-    """Remove an indicator from a chart."""
-    engine = _active_watches.get(watch_id)
-    if not engine:
-        raise HTTPException(status_code=404, detail="Watch not found")
-
-    removed = engine.remove_indicator(indicator_id)
-    if not removed:
-        raise HTTPException(status_code=404, detail="Indicator not found")
-
-    # Broadcast removal to all WS clients
-    ws_list = _watch_websockets.get(watch_id, [])
-    if ws_list:
-        msg = {"type": "indicator_removed", "data": {"indicator_id": indicator_id}}
-        dead = []
-        for ws in ws_list:
-            try:
-                await ws.send_json(msg)
-            except Exception:
-                dead.append(ws)
-        for ws in dead:
-            ws_list.remove(ws)
-
-    return {"success": True, "indicator_id": indicator_id}
-
-
-@router.put("/{watch_id}/indicators/{indicator_id}")
-async def update_indicator(
-    watch_id: str, indicator_id: str, req: IndicatorUpdateRequest, request: Request
-):
-    """Update indicator settings and recompute from the same DataFrame."""
-    engine = _active_watches.get(watch_id)
-    if not engine:
-        raise HTTPException(status_code=404, detail="Watch not found")
-
-    try:
-        result = await asyncio.to_thread(engine.update_indicator, indicator_id, req.settings)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Indicator update failed: {e}")
-
-    if not result:
-        raise HTTPException(status_code=404, detail="Indicator not found")
-
-    # Broadcast to all WS clients
-    ws_list = _watch_websockets.get(watch_id, [])
-    if ws_list:
-        msg = {"type": "indicator_updated", "data": result}
-        dead = []
-        for ws in ws_list:
-            try:
-                await ws.send_json(msg)
-            except Exception:
-                dead.append(ws)
-        for ws in dead:
-            ws_list.remove(ws)
-
-    return result
-
-
-@router.get("/{watch_id}/indicators")
-async def list_indicators(watch_id: str, request: Request):
-    """
-    List all active indicators with their full computed data.
-    Used when a new chart instance needs to sync (e.g., after page refresh).
-    """
-    engine = _active_watches.get(watch_id)
-    if not engine:
-        raise HTTPException(status_code=404, detail="Watch not found")
-
-    try:
-        all_data = await asyncio.to_thread(engine.get_all_indicator_data)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to compute indicators: {e}")
-
-    return {
-        "watch_id": watch_id,
-        "indicators": all_data,
-        "active": engine.get_active_indicators(),
-    }
 
 
 # ── WebSocket ──────────────────────────────────────────────────────────
@@ -265,13 +131,9 @@ async def watch_ws(websocket: WebSocket, watch_id: str):
     so signal markers are pushed to the chart.
 
     Messages sent to client:
-      {"type": "bar_updates",       "data": {"bars": [...], "indicators": {...}}}
+      {"type": "bar_updates",       "data": {"bars": [...]}}
       {"type": "signal",            "data": {...}}   — signal marker from SignalBus
       {"type": "trade_update",      "data": {...}}   — TP/SL hit update
-      {"type": "indicator_added",   "data": {...}}   — indicator added via REST
-      {"type": "indicator_removed", "data": {...}}   — indicator removed via REST
-      {"type": "indicator_updated", "data": {...}}   — indicator settings changed
-      {"type": "indicator_sync",    "data": {...}}   — full indicator state on connect
     """
     await websocket.accept()
 
@@ -297,20 +159,7 @@ async def watch_ws(websocket: WebSocket, watch_id: str):
     if symbol and timeframe:
         bus.subscribe_chart(symbol, timeframe, on_signal)
 
-    # Send current indicator state to this new WS client
-    if engine and engine._indicators:
-        try:
-            all_data = engine.get_all_indicator_data()
-            if all_data:
-                await websocket.send_json({
-                    "type": "indicator_sync",
-                    "data": {
-                        "indicators": all_data,
-                        "active": engine.get_active_indicators(),
-                    },
-                })
-        except Exception as e:
-            log.error(f"Indicator sync failed | watch={watch_id}: {e}")
+
 
     log.info(f"Watchlist WS connected | watch={watch_id} | {symbol}/{timeframe}")
 

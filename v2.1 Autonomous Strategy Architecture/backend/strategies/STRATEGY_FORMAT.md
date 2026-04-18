@@ -95,28 +95,7 @@ class MyStrategy(BaseStrategy):
         
         return "HOLD"
 
-    def get_indicator_data(self, data: pd.DataFrame) -> dict:
-        """
-        Return indicators for chart overlay.
-        dict keys = line labels in the chart legend.
-        dict values = list of float (or None for NaN) — SAME LENGTH as data.
-        
-        Naming convention:
-        - Contains "rsi", "macd", "stoch", "volume", "histogram", "oscillator"
-          → renders in a separate pane below the chart
-        - Everything else → overlaid on the price chart
-        """
-        cache = getattr(self, "_cache", None)
-        if not cache:
-            return {}
-        
-        def to_list(arr):
-            return [None if np.isnan(v) else round(float(v), 6) for v in arr]
-        
-        return {
-            "EMA Fast": to_list(cache["ema_fast"]),
-            "EMA Slow": to_list(cache["ema_slow"]),
-        }
+
 ```
 
 ## Multi-Timeframe Strategies

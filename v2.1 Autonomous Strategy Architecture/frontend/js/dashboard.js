@@ -17,7 +17,7 @@ let _chartInstances = {};   // watchId → { chart, candleSeries, markers }
 let _expandedState = { chart: null, candles: null, watchId: null };
 let _mt5Symbols = [];
 let _signalWs = null;       // Global signal WebSocket
-let _globalIndicators = {};  // Tracks globally-applied indicators: type → settings
+let _globalIndicators = {};  // TRACKS NO MORE
 let _renderedSignalIds = new Set(); // Dedup: track displayed signal IDs
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -717,7 +717,7 @@ function handleGlobalSignalMsg(msg) {
         }
 
         // Toast notification
-        const stratLabel = sig.strategy ? `${sig.strategy}: ` : '';
+        const stratLabel = sig.scanner_name || sig.strategy ? `${sig.scanner_name || sig.strategy}: ` : '';
         showToast(`${stratLabel}${sig.direction} · ${sig.symbol} [${sig.timeframe}] @ ${fmtPrice(sig.price)}`,
             sig.direction === 'BUY' ? 'success' : 'error', 5000);
     }
@@ -835,7 +835,7 @@ function removeScannerNavAndPanel(scannerId) {
  * Matches by scanner ID (via strategy name) or creates orphan panel.
  */
 function addSignalToScannerPanel(sig) {
-    const stratName = sig.strategy || 'Unknown';
+    const stratName = sig.scanner_name || sig.strategy || 'Unknown';
     let scannerId = null;
 
     // Find matching scanner by strategy name
@@ -969,8 +969,7 @@ async function handleAddWatchChart() {
             initWatchChart(watchId, symbol, tf, bars);
         }
 
-        // Apply global indicators to new chart
-        applyGlobalIndicatorsToChart(watchId);
+
 
         // Inject signals from already-running scanners as chart markers
         _injectExistingSignalsToChart(watchId, symbol, tf);
@@ -1003,7 +1002,7 @@ function _addSignalMarkerToChart(watchId, sig) {
     const w = _watchCharts[watchId];
     const chartTf = w ? w.tf : null;
 
-    const stratLabel = sig.strategy ? `${sig.strategy}: ${sig.direction}` : sig.direction;
+    const stratLabel = sig.scanner_name || sig.strategy ? `${sig.scanner_name || sig.strategy}: ${sig.direction}` : sig.direction;
 
     // Floor signal timestamp to chart's bar boundary so marker aligns to an existing bar
     const rawTs = _toChartTs(sig.bar_time || sig.time);
@@ -1119,7 +1118,7 @@ function renderWatchGrid() {
                     <button class="chart-expand-btn" onclick="removeWatchChart('${wid}')" title="Remove Chart" style="color:var(--short);">✕</button>
                 </div>
             </div>
-            <div class="indicator-chips-bar" id="indicator-chips-${wid}" style="display:none;"></div>
+
             <div class="chart-cell-body" id="watch-canvas-${wid}">
                 <div class="empty-state" style="padding: 40px;"><div class="spinner-lg"></div></div>
             </div>
@@ -1242,8 +1241,7 @@ function initWatchChart(watchId, symbol, tf, bars) {
         tf,
     };
 
-    // Initialize indicator state for this chart
-    initIndicatorState(watchId);
+
 
     // Update price display
     if (uniqueBars.length > 0) {
@@ -1300,11 +1298,10 @@ function startWatchWS(watchId) {
 function handleWatchMsg(watchId, msg) {
     const inst = _chartInstances[watchId];
 
-    // ── Bar updates from WatchlistEngine (new format: {bars, indicators})
+    // ── Bar updates from WatchlistEngine
     if (msg.type === 'bar_updates') {
         const payload = msg.data || {};
         const bars = payload.bars || payload || [];
-        const indicators = payload.indicators || null;
 
         // Handle bars array (backward compat: data could be array or object)
         const barList = Array.isArray(bars) ? bars : [];
@@ -1338,30 +1335,6 @@ function handleWatchMsg(watchId, msg) {
             }
         }
 
-        // ── Update indicators from the same payload
-        if (indicators) {
-            handleIndicatorUpdates(watchId, indicators);
-            // Also update expanded chart indicators if open
-            updateExpandedIndicators(watchId, indicators);
-        }
-    }
-
-    // ── Indicator lifecycle messages from backend ──
-    if (msg.type === 'indicator_added') {
-        const d = msg.data;
-        renderIndicator(watchId, d.indicator_id, d.type, d.settings, d.data);
-    }
-    if (msg.type === 'indicator_removed') {
-        const d = msg.data;
-        _removeIndicatorSeries(watchId, d.indicator_id);
-        renderIndicatorChips(watchId);
-    }
-    if (msg.type === 'indicator_updated') {
-        const d = msg.data;
-        renderIndicator(watchId, d.indicator_id, d.type, d.settings, d.data);
-    }
-    if (msg.type === 'indicator_sync') {
-        handleIndicatorSync(watchId, msg.data);
     }
 
     // ── Signal from SignalBus (matched by symbol+timeframe)
@@ -1405,8 +1378,7 @@ async function removeWatchChart(watchId) {
         w._resizeObserver.disconnect();
     }
 
-    // Destroy indicator state and series
-    destroyIndicatorState(watchId);
+
 
     // Destroy chart
     if (_chartInstances[watchId]) {
@@ -1441,8 +1413,7 @@ function resizeAllWatchCharts() {
             }
         }
     }
-    // Also resize indicator panes
-    resizeAllIndicatorPanes();
+
 }
 
 // ═══ LIGHTWEIGHT CHARTS — TIMESTAMP UTILITIES ═════════════════
@@ -1492,8 +1463,7 @@ function openExpandedWatch(watchId) {
     const container = document.getElementById('chart-modal-container');
     const title = document.getElementById('chart-modal-title');
 
-    // Clean up any prior expanded indicator panes
-    cleanupExpandedIndicators();
+
 
     title.innerHTML = `${inst.symbol} <span style="color: var(--accent); font-weight: 600;">${inst.tf}</span>`;
     container.innerHTML = '';
@@ -1549,8 +1519,7 @@ function openExpandedWatch(watchId) {
 
     setTimeout(() => {
         chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
-        // Render indicators on the expanded chart
-        renderIndicatorsOnExpandedChart(watchId, chart, candleSeries);
+
     }, 50);
 }
 
@@ -1558,8 +1527,7 @@ function closeExpandedChart() {
     const modal = document.getElementById('chart-expand-modal');
     modal.classList.remove('open');
 
-    // Clean up expanded indicator series + pane charts
-    cleanupExpandedIndicators();
+
 
     if (_expandedState.chart) {
         try { _expandedState.chart.remove(); } catch(e) {}
