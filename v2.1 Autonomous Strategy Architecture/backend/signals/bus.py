@@ -75,18 +75,19 @@ class SignalBus:
 
         log.debug(f"Signal published | {signal.get('direction')} {signal.get('symbol')} [{signal.get('timeframe')}]")
 
-    async def publish_trade_update(self, update: dict):
+    async def publish_trade_update(self, update: dict, global_only: bool = False):
         """
         Broadcast trade status updates (TP/SL hits).
-        Goes to global subscribers only — chart doesn't need TP/SL status updates.
+        Goes to global subscribers only if global_only=True.
         """
-        # Broadcast to ALL charts watching this symbol (cross-timeframe)
-        symbol = update.get('symbol', '')
         payload = {"type": "trade_update", "data": update}
-
-        for key, subscribers in list(self._chart_subscribers.items()):
-            if key.startswith(f"{symbol}_"):
-                await self._broadcast_to(subscribers, payload)
+        if not global_only:
+            # Broadcast to ALL charts watching this symbol (cross-timeframe)
+            symbol = update.get('symbol', '')
+            for key, subscribers in list(self._chart_subscribers.items()):
+                if key.startswith(f"{symbol}_"):
+                    await self._broadcast_to(subscribers, payload)
+        
         await self._broadcast_to(self._global_subscribers, payload)
 
     # ── Subscriptions ──────────────────────────────────────────────
@@ -153,8 +154,13 @@ class SignalBus:
                     await callback(payload)
                 else:
                     callback(payload)
-            except Exception:
-                dead.append(callback)
+            except (ConnectionResetError, RuntimeError) as e:
+                if "closed" in str(e).lower() or "disconnect" in str(e).lower():
+                    dead.append(callback)
+                else:
+                    log.error(f"Subscriber callback error (kept): {e}")
+            except Exception as e:
+                log.error(f"Subscriber callback error (kept): {e}", exc_info=True)
         # Remove dead callbacks
         for cb in dead:
             try:

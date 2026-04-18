@@ -62,12 +62,16 @@ def validate_order(req: OrderRequest, mt5_provider, risk_state: dict):
     # For market orders, validate SL/TP direction against current tick
     if req.order_type == "market":
         tick = mt5_provider.get_symbol_tick(req.symbol)
-        if tick and req.sl_enabled and req.sl:
+        if (req.sl_enabled and req.sl) or (req.tp_enabled and req.tp):
+            if not tick:
+                raise ValueError("Cannot validate SL/TP — MT5 tick unavailable")
+            
             entry = tick["ask"] if req.direction == "buy" else tick["bid"]
-            if req.direction == "buy" and req.sl >= entry:
-                raise ValueError(f"BUY stop loss {req.sl} must be below entry price {entry:.5f}")
-            if req.direction == "sell" and req.sl <= entry:
-                raise ValueError(f"SELL stop loss {req.sl} must be above entry price {entry:.5f}")
+            if req.sl_enabled and req.sl:
+                if req.direction == "buy" and req.sl >= entry:
+                    raise ValueError(f"BUY stop loss {req.sl} must be below entry price {entry:.5f}")
+                if req.direction == "sell" and req.sl <= entry:
+                    raise ValueError(f"SELL stop loss {req.sl} must be above entry price {entry:.5f}")
 
     # 8. Broker stops_level check (retcode 10016 = "Invalid stops" from MT5)
     if req.order_type == "market" and (req.sl_enabled or req.tp_enabled):

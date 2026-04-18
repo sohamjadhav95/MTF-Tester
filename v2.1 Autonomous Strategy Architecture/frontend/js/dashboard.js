@@ -905,19 +905,17 @@ function removeScannerNavAndPanel(scannerId) {
     }
 }
 
-/**
- * Route a signal to its scanner's full panel.
- * Matches by scanner ID (via strategy name) or creates orphan panel.
- */
 function addSignalToScannerPanel(sig) {
-    const stratName = sig.scanner_name || sig.strategy || 'Unknown';
-    let scannerId = null;
+    let scannerId = sig.scanner_id;
 
-    // Find matching scanner by strategy name
-    for (const [sid, sc] of Object.entries(_activeScanners)) {
-        if (sc.strategyName === stratName) {
-            scannerId = sid;
-            break;
+    if (!scannerId) {
+        const stratName = sig.scanner_name || sig.strategy || 'Unknown';
+        // Find matching scanner by strategy name
+        for (const [sid, sc] of Object.entries(_activeScanners)) {
+            if (sc.strategyName === stratName) {
+                scannerId = sid;
+                break;
+            }
         }
     }
 

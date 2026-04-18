@@ -48,6 +48,7 @@ class AutoConfig:
     override_tp: Optional[float] = None       # if set, ignore signal.tp
     fail_count: int = 0                       # consecutive failures, reset on success
     max_open_positions: int = 1               # default: 1 position per scanner
+    auto_disabled_reason: Optional[str] = None
 
 
 class AutoExecutor:
@@ -89,6 +90,7 @@ class AutoExecutor:
         cfg.override_sl = override_sl
         cfg.override_tp = override_tp
         cfg.fail_count = 0
+        cfg.auto_disabled_reason = None
         self._configs[scanner_id] = cfg
         log.info(f"Auto-trade ENABLED | scanner={scanner_id} | volume={volume}")
 
@@ -108,7 +110,7 @@ class AutoExecutor:
         return {
             sid: {"enabled": c.enabled, "volume": c.volume,
                   "override_sl": c.override_sl, "override_tp": c.override_tp,
-                  "fail_count": c.fail_count}
+                  "fail_count": c.fail_count, "auto_disabled_reason": c.auto_disabled_reason}
             for sid, c in self._configs.items()
         }
 
@@ -116,10 +118,13 @@ class AutoExecutor:
 
     async def _on_bus_message(self, payload: dict):
         """Bus calls this with {type, data}. We only care about type=signal."""
-        if payload.get("type") != "signal":
-            return
-        sig = payload.get("data", {})
-        await self.on_signal(sig)
+        try:
+            if payload.get("type") != "signal":
+                return
+            sig = payload.get("data", {})
+            await self.on_signal(sig)
+        except Exception as e:
+            log.error(f"AutoExecutor._on_bus_message error: {e}", exc_info=True)
 
     async def on_signal(self, sig: dict):
         """Main entry point. All decisions happen here in order."""
@@ -180,6 +185,14 @@ class AutoExecutor:
         scanner_id = sig["scanner_id"]
         sig_id = sig["id"]
 
+        if self._risk_guard.get_state().get("breached"):
+            await self._broadcast_result(
+                sig, success=False,
+                error="Risk threshold breached — auto-trade paused"
+            )
+            # Do NOT increment fail_count — this is an external condition, not a pipeline failure
+            return
+
         # Translate signal direction (BUY/SELL) to OrderRequest direction (buy/sell)
         direction = sig["direction"].lower()
 
@@ -204,14 +217,6 @@ class AutoExecutor:
             scanner_id=scanner_id,
             signal_id=sig_id,
         )
-
-        if self._risk_guard.get_state().get("breached"):
-            await self._broadcast_result(
-                sig, success=False,
-                error="Risk threshold breached — auto-trade paused"
-            )
-            # Do NOT increment fail_count — this is an external condition, not a pipeline failure
-            return
 
         # Fetch positions & tag prefix
         from data_collector.router import get_mt5
@@ -269,8 +274,10 @@ class AutoExecutor:
         """Reject signals where bar_time is older than STALENESS_SECONDS."""
         try:
             # Strip Z, parse as UTC
-            s = bar_time_str.rstrip("Z")
-            bar_time = datetime.fromisoformat(s).replace(tzinfo=timezone.utc)
+            s = bar_time_str[:-1] if bar_time_str.endswith("Z") else bar_time_str
+            bar_time = datetime.fromisoformat(s)
+            if bar_time.tzinfo is None:
+                bar_time = bar_time.replace(tzinfo=timezone.utc)
             age = (datetime.now(timezone.utc) - bar_time).total_seconds()
             return -5 <= age <= STALENESS_SECONDS
         except Exception:
@@ -279,6 +286,7 @@ class AutoExecutor:
     def _maybe_auto_disable(self, scanner_id: str, cfg: AutoConfig):
         if cfg.fail_count >= MAX_CONSECUTIVE_FAILURES:
             cfg.enabled = False
+            cfg.auto_disabled_reason = f"Disabled after {cfg.fail_count} failures"
             log.warning(
                 f"Auto-trade AUTO-DISABLED | scanner={scanner_id} | "
                 f"consecutive failures={cfg.fail_count}"
@@ -308,4 +316,4 @@ class AutoExecutor:
             "error": error,
             "time": datetime.now(timezone.utc).isoformat() + "Z",
         }
-        await SignalBus.get().publish_trade_update(update)
+        await SignalBus.get().publish_trade_update(update, global_only=True)
