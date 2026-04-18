@@ -22,7 +22,7 @@ p1 = threading.Thread(
 p2 = threading.Thread(target=TF_1M)
 
 p1.start()
-time.sleep(10)      # Wait for CSV creation
+time.sleep(5)      # Wait for CSV creation
 p2.start()
 
 '''

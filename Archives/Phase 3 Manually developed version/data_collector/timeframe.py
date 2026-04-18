@@ -6,7 +6,7 @@ import time
 import os
 
 TICK_FILE = r"E:\Projects\Freelancing\MTF-Tester\data_collector\monitor\live_ticks.csv"
-OHLC_FILE = r"E:\Projects\Freelancing\MTF-Tester\data_collector\monitor\ohlc_tf.csv"
+OHLC_FILE = r"E:\Projects\Freelancing\MTF-Tester\data_collector\monitor\ohlc_{}.csv"
 
 
 def initialize(tf):
@@ -23,7 +23,7 @@ def initialize(tf):
     ).reset_index()
     forming_candle = ohlc.iloc[-1].to_dict()
     ohlc.drop(ohlc.index[-1], inplace=True)     # drop last row; avoid inconsistancy
-    ohlc.to_csv(OHLC_FILE, index=False)
+    ohlc.to_csv(OHLC_FILE.format(tf), index=False)
 
     return len(df), forming_candle
 
@@ -49,7 +49,8 @@ def run(tf):
             else:
                 # append finished candle
                 new_row = pd.DataFrame([current_candle])
-                new_row.to_csv(OHLC_FILE, mode='a', header=not os.path.exists(OHLC_FILE), index=False)
+                ohlc_file = OHLC_FILE.format(tf)
+                new_row.to_csv(ohlc_file, mode='a', header=not os.path.exists(ohlc_file), index=False)
 
                 # start new candle
                 current_candle = {

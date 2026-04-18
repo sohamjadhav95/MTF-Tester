@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MTF Tester — Sign In</title>
+    <meta name="description" content="Sign in to MTF Tester algorithmic trading platform">
+    <link rel="stylesheet" href="/styles/base.css">
+    <link rel="stylesheet" href="/styles/components.css">
+    <link rel="stylesheet" href="/styles/auth.css">
+</head>
+<body>
+<div class="auth-page">
+    <div class="auth-container">
+        <div class="auth-logo">
+            <h1>MTF Tester</h1>
+            <p>Algorithmic Trading Platform</p>
+        </div>
+        <div class="auth-card">
+            <!-- Tabs -->
+            <div class="auth-tabs">
+                <div class="auth-tab active" data-tab="login">Sign In</div>
+                <div class="auth-tab" data-tab="register">Create Account</div>
+            </div>
+
+            <!-- Error -->
+            <div class="auth-error" id="auth-error"></div>
+
+            <!-- Login Form -->
+            <form class="auth-form" id="login-form">
+                <div class="form-group">
+                    <label class="form-label">Username</label>
+                    <input class="form-input" id="login-username" placeholder="Enter username" autocomplete="username" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Password</label>
+                    <input class="form-input" id="login-password" type="password" placeholder="Enter password" autocomplete="current-password" required>
+                </div>
+                <button type="submit" class="btn btn-primary auth-submit" id="login-btn">Sign In</button>
+            </form>
+
+            <!-- Register Form -->
+            <form class="auth-form" id="register-form" style="display: none;">
+                <div class="form-group">
+                    <label class="form-label">Username</label>
+                    <input class="form-input" id="reg-username" placeholder="Choose a username (3+ chars)" autocomplete="username" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Email <span style="opacity:0.5;">(optional)</span></label>
+                    <input class="form-input" id="reg-email" type="email" placeholder="your@email.com" autocomplete="email">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Password</label>
+                    <input class="form-input" id="reg-password" type="password" placeholder="Minimum 8 characters" autocomplete="new-password" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Confirm Password</label>
+                    <input class="form-input" id="reg-confirm" type="password" placeholder="Re-enter password" autocomplete="new-password" required>
+                </div>
+                <button type="submit" class="btn btn-primary auth-submit" id="register-btn">Create Account</button>
+            </form>
+        </div>
+    </div>
+</div>
+<script src="/js/core.js"></script>
+<script src="/js/auth.js"></script>
+</body>
+</html>
