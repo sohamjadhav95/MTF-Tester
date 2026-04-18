@@ -25,6 +25,18 @@ import pandas as pd
 from pydantic import BaseModel
 
 
+TF_DURATION = {
+    "M1":  pd.Timedelta(minutes=1),
+    "M5":  pd.Timedelta(minutes=5),
+    "M15": pd.Timedelta(minutes=15),
+    "M30": pd.Timedelta(minutes=30),
+    "H1":  pd.Timedelta(hours=1),
+    "H4":  pd.Timedelta(hours=4),
+    "D1":  pd.Timedelta(days=1),
+    "W1":  pd.Timedelta(weeks=1),
+}
+
+
 # ─── Base Config ────────────────────────────────────────────────
 class StrategyConfig(BaseModel):
     """
@@ -73,7 +85,9 @@ class BaseStrategy(ABC):
 
     def on_start(self, data: pd.DataFrame) -> None:
         """
-        Called ONCE before bar loop begins, and on each cache refresh (live).
+        Called ONCE before the bar loop, and ALSO on each live poll when new bars
+        arrive. Live calls receive the updated rolling M1 DataFrame (last 3000 bars).
+        Keep this method fast — it runs on every M1 update (~once/minute in live mode).
 
         data: Full M1 DataFrame (up to 3000 bars).
               Columns: time, open, high, low, close, volume, spread
@@ -88,6 +102,13 @@ class BaseStrategy(ABC):
 
         IMPORTANT: Do NOT reset self._cache here in a way that loses live state.
         Override carefully if you maintain persistent state across bar loops.
+
+        REQUIRED cache entries (if your strategy uses HTF):
+            self._cache["m1_to_htf"]  : list[int] — from _m1_to_completed_htf_index
+            self._cache["htf_times"]  : array — htf bar open times (np.datetime64 or pd.Timestamp)
+
+        These enable the live scanner to dedup signals by HTF-bar open-time rather
+        than by index (which is unstable across rolling-window trims).
         """
         pass
 
@@ -170,8 +191,42 @@ class BaseStrategy(ABC):
         return resampled.reset_index(drop=True)
 
     @staticmethod
+    def _m1_to_completed_htf_index(
+        m1_times: pd.Series,
+        htf_times: pd.Series,
+        htf_duration: pd.Timedelta,
+    ) -> list[int]:
+        """
+        For each M1 bar, return the index of the last HTF bar that has FULLY CLOSED
+        by the end of that M1 bar. Returns -1 if no HTF bar has closed yet.
+
+        An HTF bar labeled T covers [T, T + htf_duration). It closes at T + htf_duration.
+        An M1 bar labeled t covers [t, t + 1min). It closes at t + 1min.
+        HTF[k] is available to the strategy at M1[i]'s close iff
+            htf_open[k] + htf_duration  <=  m1_open[i] + 1min.
+
+        The boundary case: at M1 labeled htf_open[k+1] (the first M1 of HTF[k+1]'s
+        window), HTF[k] has just completed. That's where signals fire.
+
+        USE THIS in every new strategy. The old `_m1_to_htf_index` is look-ahead-unsafe.
+        """
+        one_min = pd.Timedelta(minutes=1)
+        htf_close_times = [pd.Timestamp(t) + htf_duration for t in htf_times]
+        mapping: list[int] = []
+        h_idx = -1
+        for m_time in m1_times:
+            m_close = pd.Timestamp(m_time) + one_min
+            while (h_idx + 1 < len(htf_close_times)) and (htf_close_times[h_idx + 1] <= m_close):
+                h_idx += 1
+            mapping.append(h_idx)
+        return mapping
+
+    @staticmethod
     def _m1_to_htf_index(m1_times: pd.Series, htf_times: pd.Series) -> list[int]:
         """
+        DEPRECATED: This older mapping is look-ahead unsafe.
+        Use `_m1_to_completed_htf_index` instead.
+
         For each M1 bar, find the index of its corresponding HTF bar.
         Returns list of length len(m1_times). Value is -1 if no HTF bar found.
 

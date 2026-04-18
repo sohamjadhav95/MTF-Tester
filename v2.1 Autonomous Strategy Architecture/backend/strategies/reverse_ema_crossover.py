@@ -46,13 +46,24 @@ class ReverseEMACrossover(BaseStrategy):
         cfg = self.config
         rule = TF_RULE.get(cfg.timeframe, "15min")
         htf = self._resample(data, rule)
+
+        # NEW: derive duration from the config timeframe
+        from strategies._template import TF_DURATION
+        htf_duration = TF_DURATION.get(cfg.timeframe, pd.Timedelta(minutes=15))
+
         prices = htf[cfg.source].values.astype(float)
         fast = self._ema(prices, cfg.fast_period)
         slow = self._ema(prices, cfg.slow_period)
-        m1_to_htf = self._m1_to_htf_index(data["time"], htf["time"])
+
+        # NEW: use the completed-HTF mapping (no look-ahead)
+        m1_to_htf = self._m1_to_completed_htf_index(
+            data["time"], htf["time"], htf_duration
+        )
+
         self._cache = {
             "fast": fast, "slow": slow,
             "m1_to_htf": m1_to_htf,
+            "htf_times": htf["time"].values,   # NEW: for scanner dedup
             "htf_close": htf["close"].values.astype(float),
         }
 

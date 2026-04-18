@@ -83,12 +83,27 @@ class Supertrend(BaseStrategy):
         cfg = self.config
         rule = TF_RULE.get(cfg.timeframe, "15min")
         htf = self._resample(data, rule)
+
+        # NEW: derive duration from the config timeframe
+        from strategies._template import TF_DURATION
+        htf_duration = TF_DURATION.get(cfg.timeframe, pd.Timedelta(minutes=15))
+
         h = htf["high"].values.astype(float)
         l = htf["low"].values.astype(float)
         c = htf["close"].values.astype(float)
         st, direction = self._compute_supertrend(h, l, c, cfg.atr_period, cfg.multiplier)
-        m1_to_htf = self._m1_to_htf_index(data["time"], htf["time"])
-        self._cache = {"st": st, "direction": direction, "m1_to_htf": m1_to_htf}
+
+        # NEW: use the completed-HTF mapping
+        m1_to_htf = self._m1_to_completed_htf_index(
+            data["time"], htf["time"], htf_duration
+        )
+
+        self._cache = {
+            "st": st, 
+            "direction": direction, 
+            "m1_to_htf": m1_to_htf,
+            "htf_times": htf["time"].values,
+        }
 
     def on_bar(self, index: int, data: pd.DataFrame) -> str | tuple:
         cache = self._cache

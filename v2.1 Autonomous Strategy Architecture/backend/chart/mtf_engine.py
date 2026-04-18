@@ -68,7 +68,7 @@ class LiveScanEngine:
         self._rolling_df: Optional[pd.DataFrame] = None
         self._active_trades: List[Dict] = []
         self._last_signal_time = None
-        self._last_signal_htf_idx: int = -1   # HTF-bar dedup
+        self._last_signal_htf_open: Optional[pd.Timestamp] = None
 
         # Display TF: read the strategy's configured operating timeframe so
         # the signal panel shows "H4" instead of "M1" when running on H4.
@@ -168,16 +168,23 @@ class LiveScanEngine:
                 direction, sl, tp = self._parse_signal(raw)
                 if direction in ("BUY", "SELL") and self._last_signal_time != bar_time:
                     # Bug 4: HTF-bar dedup — only emit once per HTF bar
-                    current_htf_idx = -1
                     cache = getattr(self.strategy, "_cache", {})
                     m1_to_htf = cache.get("m1_to_htf", [])
-                    if i < len(m1_to_htf):
-                        current_htf_idx = m1_to_htf[i]
-                    if current_htf_idx > -1 and current_htf_idx == self._last_signal_htf_idx:
-                        continue  # Same HTF bar already signaled — skip duplicate
+                    htf_times = cache.get("htf_times", [])
 
+                    htf_open_time = None
+                    if i < len(m1_to_htf):
+                        h_idx = m1_to_htf[i]
+                        if 0 <= h_idx < len(htf_times):
+                            htf_open_time = pd.Timestamp(htf_times[h_idx])
+
+                    dedup_key = htf_open_time if htf_open_time is not None else pd.Timestamp(bar["time"])
+
+                    if dedup_key == self._last_signal_htf_open:
+                        continue   # already emitted for this HTF (or this M1)
+                    
                     self._last_signal_time = bar_time
-                    self._last_signal_htf_idx = current_htf_idx
+                    self._last_signal_htf_open = dedup_key
                     trade = {
                         "id": str(uuid.uuid4()),
                         "type": "signal",
@@ -294,16 +301,23 @@ class LiveScanEngine:
                 direction, sl, tp = self._parse_signal(raw)
                 if direction in ("BUY", "SELL") and self._last_signal_time != b_time:
                     # Bug 4: HTF-bar dedup
-                    current_htf_idx = -1
                     cache = getattr(self.strategy, "_cache", {})
                     m1_to_htf = cache.get("m1_to_htf", [])
-                    if idx < len(m1_to_htf):
-                        current_htf_idx = m1_to_htf[idx]
-                    if current_htf_idx > -1 and current_htf_idx == self._last_signal_htf_idx:
-                        continue  # Same HTF bar already signaled — skip duplicate
+                    htf_times = cache.get("htf_times", [])
 
+                    htf_open_time = None
+                    if idx < len(m1_to_htf):
+                        h_idx = m1_to_htf[idx]
+                        if 0 <= h_idx < len(htf_times):
+                            htf_open_time = pd.Timestamp(htf_times[h_idx])
+
+                    dedup_key = htf_open_time if htf_open_time is not None else pd.Timestamp(row["time"])
+
+                    if dedup_key == self._last_signal_htf_open:
+                        continue   # already emitted for this HTF (or this M1)
+                    
                     self._last_signal_time = b_time
-                    self._last_signal_htf_idx = current_htf_idx
+                    self._last_signal_htf_open = dedup_key
                     trade = {
                         "id": str(uuid.uuid4()),
                         "type": "signal",
@@ -346,7 +360,7 @@ class LiveScanEngine:
                 k = msg["k"]
                 if not k.get("x", False):
                     return  # Only process completed M1 bars
-                bar_time = datetime.utcfromtimestamp(int(k["t"]) / 1000)
+                bar_time = datetime.fromtimestamp(int(k["t"]) / 1000, tz=timezone.utc).replace(tzinfo=None)
                 new_row = {
                     "time": bar_time,
                     "open": float(k["o"]), "high": float(k["h"]),
@@ -404,16 +418,23 @@ class LiveScanEngine:
             direction, sl, tp = self._parse_signal(raw)
             if direction in ("BUY", "SELL") and self._last_signal_time != bar["time"]:
                 # Bug 4: HTF-bar dedup (Binance WS path)
-                current_htf_idx = -1
                 cache = getattr(self.strategy, "_cache", {})
                 m1_to_htf = cache.get("m1_to_htf", [])
-                if idx < len(m1_to_htf):
-                    current_htf_idx = m1_to_htf[idx]
-                if current_htf_idx > -1 and current_htf_idx == self._last_signal_htf_idx:
-                    return  # Same HTF bar already signaled
+                htf_times = cache.get("htf_times", [])
 
+                htf_open_time = None
+                if idx < len(m1_to_htf):
+                    h_idx = m1_to_htf[idx]
+                    if 0 <= h_idx < len(htf_times):
+                        htf_open_time = pd.Timestamp(htf_times[h_idx])
+
+                dedup_key = htf_open_time if htf_open_time is not None else pd.Timestamp(bar["time"])
+
+                if dedup_key == self._last_signal_htf_open:
+                    return   # Same HTF bar already signaled
+                    
                 self._last_signal_time = bar["time"]
-                self._last_signal_htf_idx = current_htf_idx
+                self._last_signal_htf_open = dedup_key
                 sig = {
                     "id": str(uuid.uuid4()),
                     "type": "signal",

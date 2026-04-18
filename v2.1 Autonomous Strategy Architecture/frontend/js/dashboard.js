@@ -1397,13 +1397,7 @@ async function removeWatchChart(watchId) {
 
     // Stop backend
     try {
-        await fetch('/api/watchlist/stop', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ watch_id: watchId }),
-        });
+        await api('/api/watchlist/stop', 'POST', { watch_id: watchId });
     } catch(e) {}
 
     // Clean up ResizeObserver

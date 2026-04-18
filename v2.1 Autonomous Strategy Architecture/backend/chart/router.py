@@ -75,174 +75,126 @@ async def get_strategy(name: str):
 @router.post("/strategies/upload")
 async def upload_strategy(file: UploadFile = File(...), request: Request = None):
     """
-    Upload a .py strategy file. Validates syntax, security, and BaseStrategy
-    compliance. Saves to strategies/ directory. Clears registry cache so
-    the new strategy is immediately available.
+    Upload a .py strategy file. Validates syntax and BaseStrategy compliance,
+    then saves to the strategies/ directory. No sandbox — single-user local app.
     Returns: {success, strategy_name, filename, schema}
     """
     from main.config import STRATEGIES_DIR
-    from chart.registry import _registry
+    from chart.registry import _registry, auto_discover_strategies
+    from strategies._template import BaseStrategy
 
-    # ── 1. File type check ────────────────────────────────────────
+    # 1. Basic file checks
     if not file.filename.endswith(".py"):
         raise HTTPException(status_code=400, detail="Only .py files are accepted")
+    if file.filename.startswith("_"):
+        raise HTTPException(status_code=400, detail="Filename cannot start with underscore")
 
     content_bytes = await file.read()
-    if len(content_bytes) > 500_000:  # 500KB max
+    if len(content_bytes) > 500_000:
         raise HTTPException(status_code=400, detail="File too large (max 500KB)")
-
     try:
         source = content_bytes.decode("utf-8")
     except UnicodeDecodeError:
         raise HTTPException(status_code=400, detail="File must be UTF-8 encoded")
 
-    # ── 2. Syntax check ───────────────────────────────────────────
+    # 2. Syntax check (compile without executing)
     try:
         compile(source, file.filename, "exec")
     except SyntaxError as e:
-        raise HTTPException(status_code=400, detail=f"Syntax error in file: {e}")
+        raise HTTPException(status_code=400, detail=f"Syntax error: {e}")
 
-    # ── 3. Security scan — block dangerous patterns ───────────────
-    BLOCKED_PATTERNS = [
-        "os.system", "os.popen", "subprocess", "eval(", "__import__(",
-        "importlib.import_module", "open(", "socket.", "requests.",
-        "urllib.request", "http.client", "ftplib", "smtplib",
-        "shutil.rmtree", "shutil.move", "pathlib.Path",
-        "sys.exit", "os.remove", "os.unlink", "os.rmdir",
-    ]
-    source_lower = source.lower()
-    for pattern in BLOCKED_PATTERNS:
-        if pattern.lower() in source_lower:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Strategy contains a blocked operation: '{pattern}'. "
-                       f"Strategies may only use numpy, pandas, and standard math."
-            )
-
-    # ── 4. Load and validate class ────────────────────────────────
-    try:
-        import builtins as _builtins
-        _safe_builtins = {k: getattr(_builtins, k) for k in [
-            'True', 'False', 'None', 'int', 'float', 'str', 'bool', 'list',
-            'dict', 'tuple', 'set', 'range', 'len', 'max', 'min', 'abs',
-            'round', 'sum', 'sorted', 'enumerate', 'zip', 'map', 'filter',
-            'isinstance', 'issubclass', 'type', 'super', 'property',
-            'staticmethod', 'classmethod', 'print', 'hasattr', 'getattr',
-            'setattr', 'ValueError', 'TypeError', 'KeyError', 'IndexError',
-            'AttributeError', 'Exception', 'RuntimeError', 'StopIteration',
-        ]}
-        module = types.ModuleType(file.filename[:-3])
-        # Restrict builtins BEFORE injecting anything else
-        module.__dict__['__builtins__'] = _safe_builtins
-        # Make strategy template available in module namespace
-        import strategies._template as _tpl
-        module.__dict__["BaseStrategy"] = _tpl.BaseStrategy
-        module.__dict__["StrategyConfig"] = _tpl.StrategyConfig
-        exec(compile(source, file.filename, "exec"), module.__dict__)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to execute module: {e}")
-
-    from strategies._template import BaseStrategy
-
-    found_cls = None
-    for attr_name in dir(module):
-        obj = getattr(module, attr_name, None)
-        if (obj is not None
-                and isinstance(obj, type)
-                and issubclass(obj, BaseStrategy)
-                and obj is not BaseStrategy
-                and getattr(obj, "name", "")):
-            found_cls = obj
-            break
-
-    if not found_cls:
-        raise HTTPException(
-            status_code=400,
-            detail="No valid strategy class found. Your class must: "
-                   "(1) extend BaseStrategy, (2) have a non-empty 'name' class variable, "
-                   "(3) implement on_bar()."
-        )
-
-    strategy_name = found_cls.name
-
-    # ── 5. Test instantiation ──────────────────────────────────────
-    try:
-        instance = found_cls(settings={})
-    except Exception as e:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Strategy '{strategy_name}' failed to instantiate: {e}"
-        )
-
-    # Step 5b — smoke-test on_start with dummy data
-    import pandas as pd, numpy as np
-    dummy = pd.DataFrame({
-        "time": pd.date_range("2024-01-01", periods=10, freq="1min"),
-        "open": np.ones(10), "high": np.ones(10),
-        "low": np.ones(10), "close": np.ones(10), "volume": np.ones(10)
-    })
-    try:
-        instance.on_start(dummy)
-    except Exception as e:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Strategy on_start() failed with dummy data: {e}"
-        )
-
-    # Step 5c — smoke-test on_bar with dummy data
-    try:
-        result = instance.on_bar(len(dummy) - 1, dummy)
-        # Validate return type
-        if result is not None:
-            if isinstance(result, tuple):
-                if len(result) < 1 or str(result[0]).upper() not in ("BUY", "SELL", "HOLD"):
-                    raise ValueError(f"on_bar() tuple first element must be BUY/SELL/HOLD, got: {result[0]}")
-            elif isinstance(result, str):
-                if result.upper() not in ("BUY", "SELL", "HOLD"):
-                    raise ValueError(f"on_bar() must return BUY/SELL/HOLD, got: {result}")
-            else:
-                raise ValueError(f"on_bar() must return str or tuple, got: {type(result).__name__}")
-    except ValueError:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Strategy on_bar() failed with dummy data: {e}"
-        )
-
-    # ── 6. Get config schema for UI ───────────────────────────────
-    schema = {}
-    if hasattr(found_cls, "config_model") and found_cls.config_model:
-        try:
-            schema = found_cls.config_model.model_json_schema()
-        except Exception:
-            schema = {}
-
-    # ── Name collision check ──────────────────────────────────────
-    from chart.registry import auto_discover_strategies
-    registry = auto_discover_strategies()
-    if strategy_name in registry:
-        raise HTTPException(
-            status_code=409,
-            detail=f"A strategy named '{strategy_name}' already exists. "
-                   f"Change the name class variable and re-upload."
-        )
-
-    # ── 7. Save to strategies directory ───────────────────────────
-    # Sanitize filename
+    # 3. Write the file first, THEN import it through the normal registry path.
+    #    This gives imports, package relativity, and everything else Python users expect.
     safe_name = "".join(c for c in file.filename if c.isalnum() or c in "._-")
     if not safe_name.endswith(".py"):
         safe_name += ".py"
     dest = STRATEGIES_DIR / safe_name
-    dest.write_bytes(content_bytes)
 
-    # ── 8. Invalidate registry cache ──────────────────────────────
+    # Refuse to overwrite protected / built-in strategies
+    PROTECTED = {
+        "_template.py", "ema_crossover.py", "supertrend.py",
+        "reverse_ema_crossover.py", "VWAPStrategy.py",
+    }
+    if safe_name in PROTECTED:
+        raise HTTPException(status_code=403, detail=f"Cannot overwrite built-in strategy '{safe_name}'")
+
+    # Write to a temp name so we can roll back cleanly if it fails to load
+    tmp_path = STRATEGIES_DIR / f".uploading_{safe_name}"
+    tmp_path.write_bytes(content_bytes)
+
+    # 4. Try to import it and find the strategy class
+    import importlib, importlib.util
+    module_name = f"strategies._upload_check_{file.filename[:-3]}"
+    spec = importlib.util.spec_from_file_location(module_name, tmp_path)
+    if spec is None or spec.loader is None:
+        tmp_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail="Could not prepare module loader")
+
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+    except Exception as e:
+        tmp_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=f"Module failed to load: {e}")
+
+    found_cls = None
+    for attr in dir(module):
+        obj = getattr(module, attr, None)
+        if (isinstance(obj, type) and issubclass(obj, BaseStrategy)
+                and obj is not BaseStrategy and getattr(obj, "name", "")):
+            found_cls = obj
+            break
+
+    if found_cls is None:
+        tmp_path.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=400,
+            detail="No valid strategy class found. Need a subclass of BaseStrategy with a non-empty `name`."
+        )
+
+    strategy_name = found_cls.name
+
+    # 5. Smoke-test instantiation + on_start/on_bar with dummy M1 data
+    import pandas as pd, numpy as np
+    dummy = pd.DataFrame({
+        "time":   pd.date_range("2024-01-01", periods=500, freq="1min"),
+        "open":   np.full(500, 1.0), "high": np.full(500, 1.01),
+        "low":    np.full(500, 0.99), "close": np.full(500, 1.0),
+        "volume": np.ones(500), "spread": 0,
+    })
+    try:
+        instance = found_cls(settings={})
+        instance.on_start(dummy)
+        result = instance.on_bar(len(dummy) - 1, dummy)
+        if isinstance(result, tuple):
+            if not result or str(result[0]).upper() not in ("BUY", "SELL", "HOLD"):
+                raise ValueError(f"on_bar tuple[0] must be BUY/SELL/HOLD, got {result[0]!r}")
+        elif isinstance(result, str):
+            if result.upper() not in ("BUY", "SELL", "HOLD"):
+                raise ValueError(f"on_bar must return BUY/SELL/HOLD, got {result!r}")
+        elif result is not None:
+            raise ValueError(f"on_bar must return str or tuple, got {type(result).__name__}")
+    except Exception as e:
+        tmp_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=f"Strategy smoke-test failed: {e}")
+
+    # 6. Name collision against already-registered strategies
+    if strategy_name in auto_discover_strategies():
+        tmp_path.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=409,
+            detail=f"Strategy named '{strategy_name}' already exists. Change the `name` attribute."
+        )
+
+    # 7. Commit — rename temp file to final name and clear the registry cache
+    if dest.exists():
+        dest.unlink()
+    tmp_path.rename(dest)
     _registry.clear()
 
-    log.info(
-        f"Strategy uploaded | name='{strategy_name}' | file={safe_name}"
-    )
+    schema = found_cls.config_model.model_json_schema() if getattr(found_cls, "config_model", None) else {}
 
+    log.info(f"Strategy uploaded | name='{strategy_name}' | file={safe_name}")
     return {
         "success":       True,
         "strategy_name": strategy_name,
@@ -253,7 +205,7 @@ async def upload_strategy(file: UploadFile = File(...), request: Request = None)
 
 
 @router.delete("/strategies/uploaded/{filename}")
-async def delete_uploaded_strategy(filename: str, request: Request):
+async def delete_uploaded_strategy(filename: str):
     """Delete an uploaded strategy. Cannot delete built-in strategies."""
     from main.config import STRATEGIES_DIR
     from chart.registry import _registry
@@ -262,7 +214,7 @@ async def delete_uploaded_strategy(filename: str, request: Request):
     PROTECTED = {
         "_template.py", "ema_crossover.py",
         "supertrend.py", "reverse_ema_crossover.py",
-        "VWAPStrategy.py", "pulse_zone.py",   # Bug 6: added pulse_zone
+        "VWAPStrategy.py",
     }
     if filename in PROTECTED:
         raise HTTPException(status_code=403, detail="Cannot delete built-in strategies")
@@ -289,7 +241,7 @@ async def list_uploaded_strategies(request: Request):
 
     BUILTIN = {
         "_template.py", "ema_crossover.py", "supertrend.py",
-        "reverse_ema_crossover.py", "VWAPStrategy.py", "pulse_zone.py",  # Bug 6: added pulse_zone
+        "reverse_ema_crossover.py", "VWAPStrategy.py",
     }
     uploaded = []
 
@@ -317,8 +269,32 @@ async def list_uploaded_strategies(request: Request):
 @router.post("/backtest")
 async def run_backtest(req: BacktestRequest, request: Request):
     from main.models import BacktestConfig
+    from datetime import datetime
 
-    # ── Resolve provider ──────────────────────────────────────────
+    # Parse the date range (accept both "YYYY-MM-DD" and ISO-with-time)
+    try:
+        date_from = datetime.fromisoformat(req.date_from.replace("Z", "+00:00"))
+        date_to   = datetime.fromisoformat(req.date_to.replace("Z", "+00:00"))
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid date format: {e}. Use 'YYYY-MM-DD' or ISO-8601."
+        )
+    if date_to <= date_from:
+        raise HTTPException(status_code=400, detail="date_to must be after date_from")
+
+    # Sanity cap: 1 year of M1 = ~525k bars. Cap at 90 days by default to
+    # keep backtests responsive; bump this if you need longer windows.
+    from datetime import timedelta
+    MAX_DAYS = 90
+    if (date_to - date_from) > timedelta(days=MAX_DAYS):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Date range exceeds {MAX_DAYS} days. M1 backtests over longer "
+                   f"windows are slow; shorten the range or raise MAX_DAYS in code."
+        )
+
+    # Resolve provider
     if req.provider == "binance":
         from data_collector.binance import BinanceProvider
         provider = BinanceProvider()
@@ -327,35 +303,34 @@ async def run_backtest(req: BacktestRequest, request: Request):
             if not connect_result["success"]:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Binance connection failed: {connect_result.get('error', 'unknown')}"
+                    detail=f"Binance connection failed: {connect_result.get('error')}"
                 )
-        # Binance futures: 1 contract = 1 unit base asset
-        default_point = 0.01
-        default_digits = 2
-        default_contract_size = 1.0
-    else:  # mt5
+        default_point = 0.01; default_digits = 2; default_contract_size = 1.0
+    else:
         provider = get_mt5()
         if not provider.connected:
             raise HTTPException(status_code=400, detail="MT5 not connected")
-        default_point = 0.00001
-        default_digits = 5
-        default_contract_size = 100000.0
+        default_point = 0.00001; default_digits = 5; default_contract_size = 100000.0
 
-    # ── Fetch primary OHLCV data — Bug 1: always fetch M1, cap at 3000 bars ──
+    # Fetch M1 OHLCV for the requested date range (paginated for Binance internally)
     try:
         data = await asyncio.to_thread(
-            provider.fetch_latest_bars,
+            provider.fetch_ohlcv,
             symbol=req.symbol,
             timeframe="M1",
-            count=3000,
+            date_from=date_from,
+            date_to=date_to,
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Data fetch failed: {e}")
 
     if data.empty:
-        raise HTTPException(status_code=400, detail="No data returned for the specified range")
+        raise HTTPException(
+            status_code=400,
+            detail=f"No data returned for {req.symbol} between {req.date_from} and {req.date_to}"
+        )
 
-    # ── Get symbol info for contract specs ────────────────────────
+    # Contract specs
     sym_info = await asyncio.to_thread(provider.get_symbol_info, req.symbol)
     point = sym_info.get("point", default_point) if sym_info else default_point
     digits = sym_info.get("digits", default_digits) if sym_info else default_digits
@@ -363,26 +338,21 @@ async def run_backtest(req: BacktestRequest, request: Request):
 
     config = BacktestConfig(
         symbol=req.symbol,
-        timeframe="M1",            # Bug 1: always M1 — strategy owns TF logic
+        timeframe="M1",
         initial_balance=req.initial_balance,
         lot_size=req.lot_size,
         commission_per_lot=req.commission_per_lot,
         fixed_spread_points=req.fixed_spread_points,
         use_spread_from_data=req.use_spread_from_data,
-        point=point,
-        digits=digits,
-        contract_size=contract_size,
+        point=point, digits=digits, contract_size=contract_size,
     )
 
-    # ── Get strategy ──────────────────────────────────────────────
     registry = auto_discover_strategies()
     if req.strategy_name not in registry:
         raise HTTPException(status_code=404, detail=f"Strategy '{req.strategy_name}' not found")
 
-    strategy_cls = registry[req.strategy_name]
-    strategy = strategy_cls(settings=req.settings)
+    strategy = registry[req.strategy_name](settings=req.settings)
 
-    # Run backtest
     backtester = Backtester(config)
     try:
         result = await asyncio.to_thread(backtester.run, data, strategy)
@@ -391,11 +361,10 @@ async def run_backtest(req: BacktestRequest, request: Request):
         raise HTTPException(status_code=500, detail=f"Backtest engine error: {e}")
 
     log.info(
-        f"Backtest complete | symbol={req.symbol} | tf={req.timeframe} | "
+        f"Backtest complete | {req.symbol} | M1 bars={len(data)} | "
         f"strategy={req.strategy_name} | trades={len(result.trades)} | "
         f"pnl={result.metrics.get('net_pnl', 0):.2f}"
     )
-
     return result
 
 

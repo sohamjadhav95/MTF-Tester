@@ -119,6 +119,49 @@ class MyStrategy(BaseStrategy):
         }
 ```
 
+## Multi-Timeframe Strategies
+
+If your strategy operates on a higher timeframe (e.g., H4), resample the M1
+data and use the `_m1_to_completed_htf_index` helper. This guarantees no
+look-ahead: at each M1 bar, the strategy only sees HTF bars that have
+*fully closed* by that M1 bar's time.
+
+```python
+from strategies._template import BaseStrategy, TF_DURATION
+
+TF_RULE = {"M1": "1min", "M5": "5min", "M15": "15min", "H1": "1h", "H4": "4h"}
+
+class MyHTFStrategy(BaseStrategy):
+    def on_start(self, data):
+        htf = self._resample(data, TF_RULE[self.config.timeframe])
+        htf_duration = TF_DURATION[self.config.timeframe]
+
+        # compute indicators on the HTF series
+        ema_fast = self._ema(htf['close'].values, 10)
+
+        # completed-HTF mapping — the whole point
+        m1_to_htf = self._m1_to_completed_htf_index(
+            data['time'], htf['time'], htf_duration
+        )
+
+        self._cache = {
+            'ema_fast': ema_fast,
+            'm1_to_htf': m1_to_htf,
+            'htf_times': htf['time'].values,   # enables scanner dedup
+        }
+
+    def on_bar(self, i, data):
+        h_idx = self._cache['m1_to_htf'][i]
+        if h_idx < 1:
+            return "HOLD"   # need at least two completed HTF bars
+        # compare last two completed HTF bars
+        ...
+```
+
+**The signal fires on the M1 bar where `h_idx` just incremented** (i.e., a new
+HTF bar just became complete). The scanner deduplicates so the signal is
+emitted exactly once per HTF bar.
+
 ## Return Values from on_bar()
 
 | Return | Meaning |
@@ -153,10 +196,11 @@ ratio:  float        = Field(2.0, ge=0.1, le=20.0)    # decimal input
 mode:   Literal[...] = Field("both", ...)              # dropdown select
 ```
 
-## Allowed Imports
+## What your strategy can do
 
-- `numpy`, `pandas`, `math`, `typing`, `datetime`
-- `pydantic` (for Field)
-- `strategies._template` (for BaseStrategy, StrategyConfig)
+Strategy files run with full Python access. Common imports that are known to work:
+- `numpy`, `pandas`, `math`, `datetime`, `typing`, `pydantic`
 
-**Blocked:** `os`, `subprocess`, `socket`, `requests`, `open()`, `urllib`, `pathlib`
+Because this is a single-user local application, no sandboxing is applied.
+Only upload strategy files that you wrote or reviewed. A malicious file
+could do anything your user account can do.

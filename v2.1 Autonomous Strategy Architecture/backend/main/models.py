@@ -21,7 +21,6 @@ class MT5ConnectRequest(BaseModel):
 # ── Backtest ───────────────────────────────────────────────────────────
 class BacktestRequest(BaseModel):
     symbol: str
-    timeframe: str
     date_from: str
     date_to: str
     strategy_name: str

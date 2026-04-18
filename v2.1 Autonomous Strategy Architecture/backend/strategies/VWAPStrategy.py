@@ -33,6 +33,10 @@ class VWAPCrossStrategy(BaseStrategy):
         rule = TF_RULE.get(cfg.timeframe, "5min")
         htf = self._resample(data, rule)
 
+        # NEW: derive duration from the config timeframe
+        from strategies._template import TF_DURATION
+        htf_duration = TF_DURATION.get(cfg.timeframe, pd.Timedelta(minutes=5))
+
         close = htf["close"].values.astype(float)
         high = htf["high"].values.astype(float)
         low = htf["low"].values.astype(float)
@@ -77,8 +81,16 @@ class VWAPCrossStrategy(BaseStrategy):
             for i in range(cfg.atr_period, n):
                 atr[i] = (atr[i - 1] * (cfg.atr_period - 1) + tr[i]) / cfg.atr_period
 
-        m1_to_htf = self._m1_to_htf_index(data["time"], htf["time"])
-        self._cache = {"vwap": vwap, "atr": atr, "close": close, "m1_to_htf": m1_to_htf}
+        # NEW: use the completed-HTF mapping
+        m1_to_htf = self._m1_to_completed_htf_index(
+            data["time"], htf["time"], htf_duration
+        )
+
+        self._cache = {
+            "vwap": vwap, "atr": atr, "close": close, 
+            "m1_to_htf": m1_to_htf,
+            "htf_times": htf["time"].values,
+        }
 
     def on_bar(self, index: int, data: pd.DataFrame) -> str | tuple:
         cache = self._cache

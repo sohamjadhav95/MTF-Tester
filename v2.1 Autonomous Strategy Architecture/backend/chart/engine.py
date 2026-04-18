@@ -80,10 +80,11 @@ class Backtester:
 
             ts = current_bar["time"]
             if isinstance(ts, datetime):
-                ts = ts.replace(tzinfo=None)
-                ts_str = ts.isoformat()
+                ts_str = ts.replace(tzinfo=None).isoformat() + "Z"
             else:
                 ts_str = str(ts)
+                if not ts_str.endswith("Z") and "+" not in ts_str:
+                    ts_str += "Z"
             self.equity_curve.append({
                 "time": ts_str,
                 "equity": round(self.equity, 2),
@@ -115,7 +116,7 @@ class Backtester:
                                     continue
                                 t = data.iloc[idx]["time"]
                                 fmt_points.append({
-                                    "time":  t.isoformat() if hasattr(t, "isoformat") else str(t),
+                                    "time":  (t.isoformat() + "Z") if hasattr(t, "isoformat") else str(t),
                                     "value": round(float(val), 6),
                                 })
                             except (TypeError, ValueError):
@@ -131,10 +132,11 @@ class Backtester:
         for _, row in data.iterrows():
             t = row["time"]
             if isinstance(t, datetime):
-                t = t.replace(tzinfo=None)
-                t_str = t.isoformat()
+                t_str = t.replace(tzinfo=None).isoformat() + "Z"
             else:
                 t_str = str(t)
+                if not t_str.endswith("Z") and "+" not in t_str:
+                    t_str += "Z"
             bar_data.append({
                 "time": t_str,
                 "open": float(row["open"]),

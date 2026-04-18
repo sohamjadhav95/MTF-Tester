@@ -1,0 +1,24 @@
+══════════════════════════════════════
+       MTF Tester — Getting Updates
+══════════════════════════════════════
+
+Fetching and pulling latest code...
+Already up to date.
+
+══════════════════════════════════════
+       MTF Tester — Starting...
+══════════════════════════════════════
+
+Activated mtf-env virtual environment.
+
+Starting server at http://127.0.0.1:8000
+Press Ctrl+C to stop.
+
+2026-04-18 13:44:56.966 | INFO     | db           | Database initialized successfully
+2026-04-18 13:44:56.980 | INFO     | engine       | Loaded strategy: EMA Crossover
+2026-04-18 13:44:56.984 | INFO     | engine       | Loaded strategy: Reverse EMA Crossover
+2026-04-18 13:44:56.986 | INFO     | engine       | Loaded strategy: Supertrend
+2026-04-18 13:44:56.990 | INFO     | engine       | Loaded strategy: VWAP Cross
+2026-04-18 13:44:56.990 | INFO     | api          | Startup complete. Loaded 4 strategies: ['EMA Crossover', 'Reverse EMA Crossover', 'Supertrend', 'VWAP Cross']
+2026-04-18 13:45:11.002 | INFO     | api          | GET /api/health | status=200 | time=1.0ms
+INFO:     127.0.0.1:63350 - "GET /api/health HTTP/1.1" 200 OK
