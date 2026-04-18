@@ -240,8 +240,7 @@ async def upload_strategy(file: UploadFile = File(...), request: Request = None)
     _registry.clear()
 
     log.info(
-        f"Strategy uploaded | name='{strategy_name}' | file={safe_name} "
-        f"| user={getattr(request.state, 'user_id', 'unknown') if request else 'unknown'}"
+        f"Strategy uploaded | name='{strategy_name}' | file={safe_name}"
     )
 
     return {
@@ -279,7 +278,7 @@ async def delete_uploaded_strategy(filename: str, request: Request):
     path.unlink()
     _registry.clear()
 
-    log.info(f"Strategy deleted | file={filename} | user={getattr(request.state, 'user_id', 'unknown')}")
+    log.info(f"Strategy deleted | file={filename}")
     return {"success": True, "message": f"Strategy '{filename}' deleted"}
 
 

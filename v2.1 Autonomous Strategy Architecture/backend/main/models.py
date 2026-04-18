@@ -10,35 +10,13 @@ from typing import Optional, Literal, List, Any
 from pydantic import BaseModel, Field, field_validator
 import re
 
-# ── Auth ───────────────────────────────────────────────────────────────
-class RegisterRequest(BaseModel):
-    username: str = Field(..., min_length=3, max_length=32)
-    password: str = Field(..., min_length=8, max_length=128)
-    email: Optional[str] = None
-
-    @field_validator("username")
-    @classmethod
-    def username_alphanumeric(cls, v):
-        if not re.match(r"^[a-zA-Z0-9_]+$", v):
-            raise ValueError("Username must be alphanumeric (underscores allowed)")
-        return v.lower()
-
-class LoginRequest(BaseModel):
-    username: str
-    password: str
-
-class SessionStateUpdate(BaseModel):
-    last_panel: Optional[str] = None
-    last_symbol: Optional[str] = None
-    last_tf: Optional[str] = None
-    last_market: Optional[str] = None
+# ── Auth (Removed) ─────────────────────────────────────────────────────
 
 # ── MT5 ────────────────────────────────────────────────────────────────
 class MT5ConnectRequest(BaseModel):
     server: str = Field(..., min_length=1)
     login: int = Field(..., gt=0)
     password: str = Field(..., min_length=1)
-    save_credentials: bool = True
 
 # ── Backtest ───────────────────────────────────────────────────────────
 class BacktestRequest(BaseModel):

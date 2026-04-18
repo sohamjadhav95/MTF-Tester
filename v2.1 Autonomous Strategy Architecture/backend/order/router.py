@@ -17,7 +17,7 @@ All routes require auth. Every order attempt is written to order_audit.
 """
 
 import asyncio
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, HTTPException
 from main.models import OrderRequest, ClosePositionRequest, RiskThresholdRequest
 from main.db import write_order_audit, get_order_history
 from main.logger import get_logger
@@ -33,26 +33,22 @@ _risk_guard = RiskGuard()
 
 
 @router.post("/place")
-async def place_order(req: OrderRequest, request: Request):
+async def place_order(req: OrderRequest):
     mt5 = get_mt5()
-    user_id = request.state.user_id
-    ip = request.client.host if request.client else "unknown"
 
     log.info(
-        f"Order requested | user={user_id} | {req.direction.upper()} {req.volume} "
+        f"Order requested | user=local | {req.direction.upper()} {req.volume} "
         f"{req.symbol} {req.order_type}"
     )
 
-    # Validate BEFORE any MT5 call
     try:
         validate_order(req, mt5, _risk_guard.get_state())
     except ValueError as e:
-        log.warning(f"Order rejected | user={user_id} | reason={e}")
+        log.warning(f"Order rejected | user=local | reason={e}")
         write_order_audit(
-            user_id=user_id, action="rejected",
+            action="rejected",
             symbol=req.symbol, direction=req.direction, volume=req.volume,
-            result={"error": str(e)}, ip_address=ip,
-            session_id=request.state.session_id,
+            result={"error": str(e)},
         )
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -72,31 +68,27 @@ async def place_order(req: OrderRequest, request: Request):
 
     # ALWAYS audit — success or failure
     write_order_audit(
-        user_id=user_id,
         action="place" if result["success"] else "failed",
         symbol=req.symbol, direction=req.direction,
         volume=req.volume, price=result.get("price"),
         sl=req.sl, tp=req.tp,
-        result=result, ip_address=ip,
-        session_id=request.state.session_id,
+        result=result,
     )
 
     if not result["success"]:
-        log.error(f"Order failed | user={user_id} | error={result.get('error')}")
+        log.error(f"Order failed | user=local | error={result.get('error')}")
         raise HTTPException(status_code=400, detail=result["error"])
 
     log.info(
-        f"Order placed | user={user_id} | ticket={result.get('ticket')} | "
+        f"Order placed | user=local | ticket={result.get('ticket')} | "
         f"{req.direction.upper()} {req.volume} {req.symbol} @ {result.get('price')}"
     )
     return result
 
 
 @router.post("/close/{ticket}")
-async def close_position(ticket: int, request: Request):
+async def close_position(ticket: int):
     mt5 = get_mt5()
-    user_id = request.state.user_id
-    ip = request.client.host if request.client else "unknown"
 
     # Fetch position details BEFORE closing for complete audit
     positions = await asyncio.to_thread(mt5.get_positions)
@@ -108,36 +100,31 @@ async def close_position(ticket: int, request: Request):
     result = await asyncio.to_thread(mt5.close_position, ticket)
 
     write_order_audit(
-        user_id=user_id,
         action="close" if result["success"] else "close_failed",
         symbol=pos_symbol,
         direction=pos_direction,
         volume=pos_volume,
-        result=result, ip_address=ip,
-        session_id=request.state.session_id,
+        result=result,
     )
 
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["error"])
 
-    log.info(f"Position closed | user={user_id} | ticket={ticket} | {pos_symbol}")
+    log.info(f"Position closed | user=local | ticket={ticket} | {pos_symbol}")
     return result
 
 
 @router.post("/close-all")
-async def close_all(request: Request):
+async def close_all():
     mt5 = get_mt5()
-    user_id = request.state.user_id
 
     result = await asyncio.to_thread(mt5.close_all_positions)
 
     write_order_audit(
-        user_id=user_id, action="close_all", result=result,
-        ip_address=request.client.host if request.client else None,
-        session_id=request.state.session_id,
+        action="close_all", result=result,
     )
 
-    log.info(f"Close all | user={user_id} | closed={result.get('closed_count')}")
+    log.info(f"Close all | user=local | closed={result.get('closed_count')}")
     return result
 
 
@@ -158,14 +145,14 @@ async def get_account():
 
 
 @router.post("/risk")
-async def set_risk(req: RiskThresholdRequest, request: Request):
+async def set_risk(req: RiskThresholdRequest):
     _risk_guard.configure(
         enabled=req.enabled,
         threshold_pct=req.threshold_pct,
         auto_close=req.auto_close,
     )
     log.info(
-        f"Risk threshold set | user={request.state.user_id} | "
+        f"Risk threshold set | user=local | "
         f"enabled={req.enabled} | threshold={req.threshold_pct}% | auto_close={req.auto_close}"
     )
     return {"message": "Risk threshold updated", "state": _risk_guard.get_state()}
@@ -177,7 +164,7 @@ async def get_risk():
 
 
 @router.get("/history")
-async def get_history(request: Request, limit: int = 100):
-    """Return order audit log for current user."""
-    history = get_order_history(request.state.user_id, limit)
+async def get_history(limit: int = 100):
+    """Return order audit log."""
+    history = get_order_history(limit)
     return {"history": history}

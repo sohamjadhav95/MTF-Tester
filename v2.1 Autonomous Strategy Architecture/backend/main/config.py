@@ -30,28 +30,7 @@ HOST = os.getenv("HOST", "127.0.0.1")
 PORT = int(os.getenv("PORT", 8000))
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
-# ── Security ───────────────────────────────────────────────────────────
-# FERNET_KEY: disabled for testing — re-enable for production
-# FERNET_KEY = os.getenv("FERNET_KEY", "")
-
-# Session token expiry in seconds (default 8 hours)
-SESSION_EXPIRY_SECONDS = int(os.getenv("SESSION_EXPIRY_SECONDS", 28800))
-
-# bcrypt cost factor (12 = ~250ms per hash, good balance)
-BCRYPT_ROUNDS = int(os.getenv("BCRYPT_ROUNDS", 12))
-
-# CORS — local only for desktop app
-CORS_ORIGINS = [
-    "http://localhost:8000",
-    "http://127.0.0.1:8000",
-]
-
-# ── Rate Limiting ──────────────────────────────────────────────────────
-# Order endpoint: max orders per minute per user
-ORDER_RATE_LIMIT = int(os.getenv("ORDER_RATE_LIMIT", 10))
-
-# Auth endpoint: max login attempts per minute per IP
-AUTH_RATE_LIMIT = int(os.getenv("AUTH_RATE_LIMIT", 5))
+# Config vars removed inline
 
 # ── Trading Safety ─────────────────────────────────────────────────────
 MAX_LOT_SIZE = float(os.getenv("MAX_LOT_SIZE", 10.0))
@@ -62,6 +41,12 @@ DEFAULT_RISK_THRESHOLD_PCT = float(os.getenv("DEFAULT_RISK_THRESHOLD_PCT", 5.0))
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LLM_MODEL = os.getenv("LLM_MODEL", "claude-opus-4-6-20251101")
 LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", 4000))
+
+# ── MT5 Connection ─────────────────────────────────────────────────────
+MT5_SERVER = os.getenv("MT5_SERVER", "")
+MT5_LOGIN = os.getenv("MT5_LOGIN", "")
+MT5_PASSWORD = os.getenv("MT5_PASSWORD", "")
+
 
 # ── Backtesting Defaults ───────────────────────────────────────────────
 DEFAULT_INITIAL_BALANCE = 10000.0

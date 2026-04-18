@@ -14,8 +14,7 @@ All routes require auth (handled by middleware).
 import asyncio
 from fastapi import APIRouter, Request, HTTPException
 from main.models import MT5ConnectRequest
-from main.auth import decrypt_mt5_password
-from main.db import load_mt5_credentials
+from main.config import MT5_SERVER, MT5_LOGIN, MT5_PASSWORD
 from main.logger import get_logger
 from data_collector.mt5 import MT5Provider
 
@@ -55,7 +54,7 @@ async def get_symbol_info(symbol: str):
 
 
 @router.post("/mt5/connect")
-async def connect_mt5(req: MT5ConnectRequest, request: Request):
+async def connect_mt5(req: MT5ConnectRequest):
     result = await asyncio.to_thread(
         _mt5_provider.connect,
         server=req.server,
@@ -65,45 +64,33 @@ async def connect_mt5(req: MT5ConnectRequest, request: Request):
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["error"])
 
-    # Save credentials if requested
-    if req.save_credentials:
-        from main.auth import encrypt_mt5_password
-        from main.db import save_mt5_credentials
-        enc = encrypt_mt5_password(req.password)
-        save_mt5_credentials(request.state.user_id, req.server, req.login, enc)
-
-    log.info(f"MT5 connected | user={request.state.user_id} | server={req.server}")
+    log.info(f"MT5 connected | user=local | server={req.server}")
     return result
 
 
-@router.post("/mt5/connect-saved")
-async def connect_mt5_saved(request: Request):
-    """Auto-connect using saved encrypted credentials."""
-    creds = load_mt5_credentials(request.state.user_id)
-    if not creds:
-        raise HTTPException(status_code=404, detail="No saved credentials found")
-    try:
-        plain_password = decrypt_mt5_password(creds["password_enc"])
-    except Exception:
-        raise HTTPException(status_code=500, detail="Failed to decrypt credentials. Re-enter password.")
+@router.post("/mt5/auto-connect")
+async def connect_mt5_auto():
+    """Auto-connect using env credentials."""
+    if not MT5_SERVER or not MT5_LOGIN:
+        raise HTTPException(status_code=404, detail="No MT5 credentials found in .env")
 
     result = await asyncio.to_thread(
         _mt5_provider.connect,
-        server=creds["server"],
-        login=creds["login"],
-        password=plain_password,
+        server=MT5_SERVER,
+        login=MT5_LOGIN,
+        password=MT5_PASSWORD,
     )
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["error"])
 
-    log.info(f"MT5 auto-connected from saved creds | user={request.state.user_id}")
+    log.info(f"MT5 auto-connected from env | user=local")
     return result
 
 
 @router.post("/mt5/disconnect")
-async def disconnect_mt5(request: Request):
+async def disconnect_mt5():
     result = _mt5_provider.disconnect()
-    log.info(f"MT5 disconnected | user={request.state.user_id}")
+    log.info("MT5 disconnected | user=local")
     return result
 
 

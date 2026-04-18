@@ -4,35 +4,13 @@
 
 const API = '';
 
-// ── Auth ──────────────────────────────────────────────────────
-const Auth = {
-    getToken()     { return localStorage.getItem('mtf_token'); },
-    setToken(t)    { localStorage.setItem('mtf_token', t); },
-    clearToken()   { localStorage.removeItem('mtf_token'); },
-    getUsername()   { return localStorage.getItem('mtf_user') || 'User'; },
-    setUsername(n)  { localStorage.setItem('mtf_user', n); },
-    isLoggedIn()   { return !!this.getToken(); },
-    logout() {
-        const t = this.getToken();
-        if (t) api('/api/auth/logout', 'POST').catch(() => {});
-        this.clearToken();
-        localStorage.removeItem('mtf_user');
-        window.location.href = '/auth';
-    }
-};
-
-function guardAuth()   { if (!Auth.isLoggedIn()) { window.location.href = '/auth'; return false; } return true; }
-function guardNoAuth() { if (Auth.isLoggedIn()) { window.location.href = '/'; return false; } return true; }
 
 // ── API Client ────────────────────────────────────────────────
 async function api(path, method = 'GET', body = null) {
     const h = { 'Content-Type': 'application/json' };
-    const t = Auth.getToken();
-    if (t) h['Authorization'] = `Bearer ${t}`;
     const opts = { method, headers: h };
     if (body && method !== 'GET') opts.body = JSON.stringify(body);
     const res = await fetch(`${API}${path}`, opts);
-    if (res.status === 401) { Auth.clearToken(); window.location.href = '/auth'; throw new Error('Session expired'); }
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || data.message || 'Request failed');
     return data;

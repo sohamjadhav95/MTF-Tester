@@ -8,7 +8,7 @@ Import and use everywhere:
 
 Rules:
 - Never log passwords, tokens, or raw credentials — scrubber enforces this
-- One named logger per module concern: api, engine, mtf, order, assistant, auth, db
+- One named logger per module concern: api, engine, mtf, order, db
 - Every log line: timestamp | level | name | message | key=value extras
 - order.log is ALWAYS written — even if other logging fails
 """
@@ -78,15 +78,13 @@ _LOGGER_FILES = {
     "engine":    "engine.log",
     "mtf":       "mtf.log",
     "order":     "order.log",    # ALWAYS written, never suppressed
-    "assistant": "assistant.log",
-    "auth":      "auth.log",
     "db":        "db.log",
 }
 
 def get_logger(name: str) -> logging.Logger:
     """
     Get or create a named logger.
-    Available names: api, engine, mtf, order, assistant, auth, db
+    Available names: api, engine, mtf, order, db
     Falls back to 'app' for unknown names.
     """
     if name in _LOGGERS:

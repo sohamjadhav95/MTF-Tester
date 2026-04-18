@@ -59,10 +59,7 @@ class Backtester:
                     self._close_position_reason(current_bar, self._get_spread(current_bar), i, sl_tp_result)
 
             # ── 2. Get signal from strategy ─────────────────────────────
-            if self.position is None or not self._position_would_close_on_signal(strategy, i, current_data):
-                raw = strategy.on_bar(i, current_data)
-            else:
-                raw = strategy.on_bar(i, current_data)
+            raw = strategy.on_bar(i, current_data)
 
             signal, sl_price, tp_price = self._parse_signal(raw)
             spread_points = self._get_spread(current_bar)
@@ -177,8 +174,7 @@ class Backtester:
         signal = str(raw).upper() if raw else "HOLD"
         return signal, None, None
 
-    def _position_would_close_on_signal(self, strategy, i, data) -> bool:
-        return False  # helper placeholder — signal always processed
+
 
     # ─── SL / TP Check ───────────────────────────────────────────────────────
 

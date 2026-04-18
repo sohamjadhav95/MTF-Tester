@@ -21,10 +21,10 @@ let _globalIndicators = {};  // Tracks globally-applied indicators: type → set
 let _renderedSignalIds = new Set(); // Dedup: track displayed signal IDs
 
 document.addEventListener('DOMContentLoaded', () => {
-    if (!guardAuth()) return;
+
 
     // ── User Init ─────────────────────────────────────────────
-    const username = Auth.getUsername();
+    const username = "User";
     document.getElementById('user-name').textContent = username;
     document.getElementById('user-avatar').textContent = username.charAt(0).toUpperCase();
 
@@ -39,11 +39,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initWatchlistPanel();
     connectGlobalSignalWS();
 
-    // ── Logout ────────────────────────────────────────────────
-    document.getElementById('logout-btn').addEventListener('click', async () => {
-        const ok = await showConfirm('Logout', 'End your session and return to login?');
-        if (ok) Auth.logout();
-    });
+
 });
 
 // ═══ NAVIGATION ═══════════════════════════════════════════════
@@ -125,12 +121,12 @@ function initMT5Connection() {
         }
     });
 
-    // Load saved
+    // Auto-Connect using Env
     loadBtn.addEventListener('click', async () => {
         try {
-            const r = await api('/api/data/mt5/connect-saved', 'POST');
+            const r = await api('/api/data/mt5/auto-connect', 'POST');
             setMT5Connected(true, r.account);
-            showToast('Connected with saved credentials', 'success');
+            showToast('Connected with auto-connect credentials', 'success');
             refreshAccountInfo();
             loadMT5Symbols();
         } catch (err) {
@@ -429,10 +425,8 @@ async function uploadStrategyFile(file) {
     formData.append('file', file);
 
     try {
-        const token = Auth.getToken();
         const res = await fetch('/api/chart/strategies/upload', {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}` },
             body: formData,
         });
         const data = await res.json();
@@ -549,7 +543,6 @@ async function handleLaunchScanner() {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${Auth.getToken()}`,
             },
             body: JSON.stringify(config),
         });
@@ -613,7 +606,6 @@ async function stopScanner(scannerId) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${Auth.getToken()}`,
             },
             body: JSON.stringify({ scanner_id: scannerId }),
         });
@@ -1409,7 +1401,6 @@ async function removeWatchChart(watchId) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${Auth.getToken()}`,
             },
             body: JSON.stringify({ watch_id: watchId }),
         });

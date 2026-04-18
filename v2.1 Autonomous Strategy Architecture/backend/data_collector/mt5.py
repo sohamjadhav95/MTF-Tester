@@ -181,7 +181,7 @@ class MT5Provider(DataProvider):
         if getattr(self, "_broker_offset", None) is None:
             tick = mt5_module.symbol_info_tick(symbol)
             if tick:
-                broker_now = datetime.utcfromtimestamp(tick.time)   # UTC, not machine-local
+                broker_now = datetime.fromtimestamp(tick.time, tz=timezone.utc).replace(tzinfo=None)   # UTC, not machine-local
                 utc_now = datetime.now(timezone.utc).replace(tzinfo=None)
                 diff = (broker_now - utc_now).total_seconds()
                 # Round to nearest half hour to eliminate millisecond ping noise
