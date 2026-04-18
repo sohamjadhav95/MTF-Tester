@@ -78,6 +78,8 @@ _LOGGER_FILES = {
     "engine":    "engine.log",
     "mtf":       "mtf.log",
     "order":     "order.log",    # ALWAYS written, never suppressed
+    "auto":      "auto.log",
+    "auth":      "auth.log",
     "db":        "db.log",
 }
 

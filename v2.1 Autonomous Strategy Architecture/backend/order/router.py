@@ -18,7 +18,7 @@ All routes require auth. Every order attempt is written to order_audit.
 
 import asyncio
 from fastapi import APIRouter, HTTPException
-from main.models import OrderRequest, ClosePositionRequest, RiskThresholdRequest
+from main.models import OrderRequest, ClosePositionRequest, RiskThresholdRequest, AutoTradeConfig
 from main.db import write_order_audit, get_order_history
 from main.logger import get_logger
 from order.validator import validate_order
@@ -33,56 +33,15 @@ _risk_guard = RiskGuard()
 
 
 @router.post("/place")
-async def place_order(req: OrderRequest):
-    mt5 = get_mt5()
-
-    log.info(
-        f"Order requested | user=local | {req.direction.upper()} {req.volume} "
-        f"{req.symbol} {req.order_type}"
-    )
-
+async def place_order_route(req: OrderRequest):
+    from order.pipeline import place_order, OrderContext
+    ctx = OrderContext(source="manual")
     try:
-        validate_order(req, mt5, _risk_guard.get_state())
+        result = await place_order(req, ctx, _risk_guard)
     except ValueError as e:
-        log.warning(f"Order rejected | user=local | reason={e}")
-        write_order_audit(
-            action="rejected",
-            symbol=req.symbol, direction=req.direction, volume=req.volume,
-            result={"error": str(e)},
-        )
         raise HTTPException(status_code=400, detail=str(e))
-
-    # Send order
-    result = await asyncio.to_thread(
-        mt5.send_order,
-        symbol=req.symbol,
-        order_type=req.order_type,
-        direction=req.direction,
-        volume=req.volume,
-        price=req.price,
-        sl=req.sl,
-        tp=req.tp,
-        sl_enabled=req.sl_enabled,
-        tp_enabled=req.tp_enabled,
-    )
-
-    # ALWAYS audit — success or failure
-    write_order_audit(
-        action="place" if result["success"] else "failed",
-        symbol=req.symbol, direction=req.direction,
-        volume=req.volume, price=result.get("price"),
-        sl=req.sl, tp=req.tp,
-        result=result,
-    )
-
-    if not result["success"]:
-        log.error(f"Order failed | user=local | error={result.get('error')}")
-        raise HTTPException(status_code=400, detail=result["error"])
-
-    log.info(
-        f"Order placed | user=local | ticket={result.get('ticket')} | "
-        f"{req.direction.upper()} {req.volume} {req.symbol} @ {result.get('price')}"
-    )
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Order failed"))
     return result
 
 
@@ -168,3 +127,54 @@ async def get_history(limit: int = 100):
     """Return order audit log."""
     history = get_order_history(limit)
     return {"history": history}
+
+
+@router.post("/auto/configure")
+async def configure_auto(req: AutoTradeConfig):
+    """Enable or disable auto-trade for a scanner, with per-trade config."""
+    from order.auto_executor import AutoExecutor
+    ae = AutoExecutor.get()
+
+    # Validate scanner exists
+    from chart.router import _active_scanners
+    if req.scanner_id not in _active_scanners:
+        raise HTTPException(status_code=404, detail=f"Scanner {req.scanner_id} not found")
+
+    if req.enabled:
+        ae.enable(req.scanner_id, volume=req.volume,
+                  override_sl=req.override_sl, override_tp=req.override_tp)
+    else:
+        ae.disable(req.scanner_id)
+    return {"success": True, "config": ae.get_all_configs().get(req.scanner_id)}
+
+
+@router.get("/auto/status")
+async def auto_status():
+    """Return current auto-trade state for all scanners."""
+    from order.auto_executor import AutoExecutor
+    from main.config import AUTO_EXEC_KILL_SWITCH
+    ae = AutoExecutor.get()
+    return {"configs": ae.get_all_configs(), "kill_switch": AUTO_EXEC_KILL_SWITCH}
+
+
+@router.get("/auto/history")
+async def auto_history(limit: int = 50):
+    """
+    Return recent auto-trades by querying order_audit where result_json.source='auto'.
+    Useful for debugging and showing auto-trade history in the UI.
+    """
+    from main.db import get_order_history
+    rows = get_order_history(limit=500)  # pull extra, filter in Python
+    auto_rows = []
+    import json as _json
+    for r in rows:
+        try:
+            result = _json.loads(r["result_json"]) if r["result_json"] else {}
+            if result.get("source") == "auto":
+                auto_rows.append({**r, "scanner_id": result.get("scanner_id"),
+                                  "signal_id": result.get("signal_id")})
+        except Exception:
+            continue
+        if len(auto_rows) >= limit:
+            break
+    return {"auto_trades": auto_rows}

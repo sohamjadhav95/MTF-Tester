@@ -41,6 +41,12 @@ async def lifespan(app: FastAPI):
     from chart.registry import auto_discover_strategies
     strategies = auto_discover_strategies()
     log.info(f"Startup complete. Loaded {len(strategies)} strategies: {list(strategies.keys())}")
+
+    # NEW: attach the auto-executor to the signal bus
+    from order.auto_executor import AutoExecutor
+    from order.router import _risk_guard
+    AutoExecutor.get(risk_guard=_risk_guard).attach_to_bus()
+
     yield
 
 # ── App ────────────────────────────────────────────────────────────────

@@ -44,6 +44,7 @@ class LiveScanEngine:
 
     def __init__(
         self,
+        scanner_id: str,
         symbol: str,
         strategy_name: str,
         settings: Dict,
@@ -51,6 +52,7 @@ class LiveScanEngine:
         broadcast_callback: Optional[Callable] = None,
         display_name: Optional[str] = None,
     ):
+        self.scanner_id = scanner_id
         self.symbol = symbol
         self.strategy_name = strategy_name
         self.settings = settings
@@ -190,10 +192,11 @@ class LiveScanEngine:
                     trade = {
                         "id": str(uuid.uuid4()),
                         "type": "signal",
+                        "scanner_id": self.scanner_id,
+                        "scanner_name": self.display_name,
+                        "strategy": self.strategy_name,
                         "symbol": self.symbol,
                         "timeframe": self._signal_tf,
-                        "strategy": self.strategy_name,
-                        "scanner_name": self.display_name,
                         "direction": direction,
                         "price": float(bar["close"]),
                         "sl": sl,
@@ -201,6 +204,7 @@ class LiveScanEngine:
                         "time": t_str,
                         "bar_time": t_str,
                         "status": "RUNNING",
+                        "live": False,
                     }
                     self._active_trades.append(trade)
                     signals.append(trade)
@@ -324,10 +328,11 @@ class LiveScanEngine:
                     trade = {
                         "id": str(uuid.uuid4()),
                         "type": "signal",
+                        "scanner_id": self.scanner_id,
+                        "scanner_name": self.display_name,
+                        "strategy": self.strategy_name,
                         "symbol": self.symbol,
                         "timeframe": self._signal_tf,
-                        "strategy": self.strategy_name,
-                        "scanner_name": self.display_name,
                         "direction": direction,
                         "price": float(row["close"]),
                         "sl": sl,
@@ -335,6 +340,7 @@ class LiveScanEngine:
                         "time": t_str,
                         "bar_time": t_str,
                         "status": "RUNNING",
+                        "live": True,
                     }
                     self._active_trades.append(trade)
                     signals.append(trade)
@@ -442,15 +448,17 @@ class LiveScanEngine:
                 sig = {
                     "id": str(uuid.uuid4()),
                     "type": "signal",
+                    "scanner_id": self.scanner_id,
+                    "scanner_name": self.display_name,
+                    "strategy": self.strategy_name,
                     "symbol": self.symbol,
                     "timeframe": self._signal_tf,
-                    "strategy": self.strategy_name,
-                    "scanner_name": self.display_name,
                     "direction": direction,
                     "price": float(bar["close"]),
                     "sl": sl, "tp": tp,
                     "time": t_str, "bar_time": t_str,
                     "status": "RUNNING",
+                    "live": True,
                 }
                 self._active_trades.append(sig)
                 try:

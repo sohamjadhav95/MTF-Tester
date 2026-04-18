@@ -49,6 +49,13 @@ class WatchStartRequest(BaseModel):
 
 
 # ── Orders ─────────────────────────────────────────────────────────────
+class AutoTradeConfig(BaseModel):
+    scanner_id: str
+    enabled: bool
+    volume: float = Field(default=0.1, gt=0, description="Fixed lots per auto-trade")
+    override_sl: Optional[float] = None
+    override_tp: Optional[float] = None
+
 class OrderRequest(BaseModel):
     symbol: str
     order_type: Literal["market", "pending"]

@@ -39,7 +39,8 @@ document.addEventListener('DOMContentLoaded', () => {
     initWatchlistPanel();
     connectGlobalSignalWS();
 
-
+    // Sync auto-trade state
+    syncAutoTradeState();
 });
 
 // ═══ NAVIGATION ═══════════════════════════════════════════════
@@ -640,7 +641,8 @@ function refreshActiveStrategies() {
             </div>
             <div class="active-strat-actions">
                 <span class="badge badge-success" style="font-size:9px;">LIVE</span>
-                <div class="auto-toggle-wrap">
+                <div class="auto-toggle-wrap" style="display:flex; align-items:center; gap:6px;">
+                    <input type="number" step="0.01" min="0.01" value="${sc.autoVolume || 0.1}" class="form-input auto-trade-volume-input" data-scanner="${sid}" style="width:55px; padding:2px 4px; font-size:11px;" title="Lots" />
                     <label class="toggle-switch">
                         <input type="checkbox" ${autoOn ? 'checked' : ''} data-scanner="${sid}" class="auto-trade-toggle-strat">
                         <span class="toggle-slider"></span>
@@ -657,19 +659,70 @@ function refreshActiveStrategies() {
         toggle.addEventListener('change', async function() {
             const sid = this.dataset.scanner;
             const on = this.checked;
+
             if (on) {
-                const ok = await showConfirm('Enable Auto Trading', 'This scanner will automatically execute trades. Are you sure?');
+                const ok = await showConfirm(
+                    'Enable Auto Trading',
+                    `Signals from "${_activeScanners[sid]?.name}" will automatically ` +
+                    `place REAL market orders on your MT5 account. Are you sure?`
+                );
                 if (!ok) { this.checked = false; return; }
             }
-            if (_activeScanners[sid]) {
+
+            // Persist state server-side
+            try {
+                const volume = parseFloat(_activeScanners[sid]?.autoVolume) || 0.1;
+                await api('/api/order/auto/configure', 'POST', {
+                    scanner_id: sid,
+                    enabled: on,
+                    volume: volume,
+                });
                 _activeScanners[sid].autoTrade = on;
+
                 const label = this.closest('.auto-toggle-wrap').querySelector('.auto-trade-status');
-                if (label) { label.textContent = on ? 'AUTO' : 'OFF'; label.className = `auto-trade-status ${on ? 'on' : 'off'}`; }
+                if (label) {
+                    label.textContent = on ? 'AUTO' : 'OFF';
+                    label.className = `auto-trade-status ${on ? 'on' : 'off'}`;
+                }
                 showToast(on ? 'Auto-trade enabled' : 'Auto-trade disabled', on ? 'success' : 'info');
                 refreshAutoTradeList();
+            } catch (err) {
+                this.checked = !on;  // revert UI on failure
+                showToast(`Failed: ${err.message}`, 'error');
             }
         });
     });
+
+    container.querySelectorAll('.auto-trade-volume-input').forEach(inp => {
+        inp.addEventListener('change', async function() {
+            const sid = this.dataset.scanner;
+            _activeScanners[sid].autoVolume = parseFloat(this.value);
+            if (_activeScanners[sid].autoTrade) {
+                await api('/api/order/auto/configure', 'POST', {
+                    scanner_id: sid, enabled: true, volume: _activeScanners[sid].autoVolume
+                }).catch(() => {});
+                showToast('Auto-trade volume updated', 'info');
+            }
+        });
+    });
+}
+
+async function syncAutoTradeState() {
+    try {
+        const r = await api('/api/order/auto/status');
+        const configs = r.configs || {};
+        for (const [sid, cfg] of Object.entries(configs)) {
+            if (_activeScanners[sid]) {
+                _activeScanners[sid].autoTrade = cfg.enabled;
+                _activeScanners[sid].autoVolume = cfg.volume;
+            }
+        }
+        refreshAutoTradeList();
+        
+        if (r.kill_switch) {
+            showToast('⚠️ Auto-trade global kill switch is ACTIVE in backend config', 'error', 10000);
+        }
+    } catch {}
 }
 
 // ═══ GLOBAL SIGNAL WEBSOCKET ══════════════════════════════════
@@ -723,8 +776,30 @@ function handleGlobalSignalMsg(msg) {
     }
 
     if (msg.type === 'trade_update') {
-        const update = msg.data;
-        updateGlobalSignalDOM(update);
+        const upd = msg.data;
+        const status = upd.status;
+
+        // Existing SL/TP handling + new auto statuses
+        if (status === 'AUTO_PLACED') {
+            showToast(
+                `✓ Auto-placed: ${upd.symbol} ticket #${upd.ticket}`,
+                'success'
+            );
+        } else if (status === 'AUTO_FAILED') {
+            showToast(
+                `✗ Auto-trade failed: ${upd.symbol} — ${upd.error || 'unknown'}`,
+                'error',
+                6000
+            );
+        }
+
+        // Update the signal row in the DOM
+        updateGlobalSignalDOM(upd);
+
+        // If AUTO_FAILED and fail_count tripped, resync state to reflect auto-disable
+        if (status === 'AUTO_FAILED') {
+            setTimeout(syncAutoTradeState, 500);
+        }
     }
 }
 
@@ -1714,7 +1789,8 @@ function refreshAutoTradeList() {
                 <span class="auto-scanner-name">${name}</span>
                 <span class="auto-scanner-meta">${sc.symbol} · ${sc.strategyName} · ${sc.timeframe || 'M1'}</span>
             </div>
-            <div class="auto-toggle-wrap">
+            <div class="auto-toggle-wrap" style="display:flex; align-items:center; gap:6px;">
+                <input type="number" step="0.01" min="0.01" value="${sc.autoVolume || 0.1}" class="form-input auto-trade-volume-input-2" data-scanner="${sid}" style="width:60px; padding:4px; font-size:12px;" title="Lots" />
                 <label class="toggle-switch">
                     <input type="checkbox" ${autoOn ? 'checked' : ''} data-scanner="${sid}" class="auto-trade-toggle">
                     <span class="toggle-slider"></span>
@@ -1729,15 +1805,48 @@ function refreshAutoTradeList() {
         toggle.addEventListener('change', async function() {
             const sid = this.dataset.scanner;
             const on = this.checked;
+
             if (on) {
-                const ok = await showConfirm('Enable Auto Trading', 'This scanner will automatically execute trades based on its strategy signals. Are you sure?');
+                const ok = await showConfirm(
+                    'Enable Auto Trading',
+                    `Signals from "${_activeScanners[sid]?.name}" will automatically ` +
+                    `place REAL market orders on your MT5 account. Are you sure?`
+                );
                 if (!ok) { this.checked = false; return; }
             }
-            if (_activeScanners[sid]) {
+
+            try {
+                const volume = parseFloat(_activeScanners[sid]?.autoVolume) || 0.1;
+                await api('/api/order/auto/configure', 'POST', {
+                    scanner_id: sid,
+                    enabled: on,
+                    volume: volume,
+                });
                 _activeScanners[sid].autoTrade = on;
+
                 const label = this.closest('.auto-toggle-wrap').querySelector('.auto-trade-status');
-                if (label) { label.textContent = on ? 'AUTO' : 'OFF'; label.className = `auto-trade-status ${on ? 'on' : 'off'}`; }
+                if (label) {
+                    label.textContent = on ? 'AUTO' : 'OFF';
+                    label.className = `auto-trade-status ${on ? 'on' : 'off'}`;
+                }
                 showToast(on ? 'Auto-trade enabled' : 'Auto-trade disabled', on ? 'success' : 'info');
+                refreshActiveStrategies();
+            } catch (err) {
+                this.checked = !on;
+                showToast(`Failed: ${err.message}`, 'error');
+            }
+        });
+    });
+
+    container.querySelectorAll('.auto-trade-volume-input-2').forEach(inp => {
+        inp.addEventListener('change', async function() {
+            const sid = this.dataset.scanner;
+            _activeScanners[sid].autoVolume = parseFloat(this.value);
+            if (_activeScanners[sid].autoTrade) {
+                await api('/api/order/auto/configure', 'POST', {
+                    scanner_id: sid, enabled: true, volume: _activeScanners[sid].autoVolume
+                }).catch(() => {});
+                showToast('Auto-trade volume updated', 'info');
             }
         });
     });

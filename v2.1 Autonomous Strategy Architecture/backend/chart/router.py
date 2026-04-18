@@ -402,6 +402,7 @@ async def start_scanner(req: MTFStartRequest, request: Request):
     scanner_id = f"scan-{_scanner_counter}"
 
     engine = MTFLiveEngine(
+        scanner_id=scanner_id,
         symbol=req.symbol,
         strategy_name=req.strategy_name,
         settings=req.settings,
@@ -452,6 +453,10 @@ async def stop_scanner(request: Request):
     scanner_id = body.get("scanner_id", "")
 
     if scanner_id in _active_scanners:
+        # Disable auto-trade for this scanner before stopping
+        from order.auto_executor import AutoExecutor
+        AutoExecutor.get().remove(scanner_id)
+
         _active_scanners[scanner_id].stop()
         del _active_scanners[scanner_id]
         _scanner_meta.pop(scanner_id, None)
@@ -465,9 +470,13 @@ async def stop_scanner(request: Request):
 @router.get("/scanners")
 async def list_scanners():
     """List active scanners with their status, config, and metadata."""
+    from order.auto_executor import AutoExecutor
+    auto_configs = AutoExecutor.get().get_all_configs()
+
     scanners = []
     for sid, engine in _active_scanners.items():
         meta = _scanner_meta.get(sid, {})
+        auto = auto_configs.get(sid, {"enabled": False})
         scanners.append({
             "scanner_id": sid,
             "name": meta.get("name", sid),
@@ -476,5 +485,6 @@ async def list_scanners():
             "strategy_name": engine.strategy_name,
             "provider": meta.get("provider", "mt5"),
             "is_running": engine.is_running,
+            "auto": auto,
         })
     return {"scanners": scanners}

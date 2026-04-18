@@ -37,6 +37,10 @@ MAX_LOT_SIZE = float(os.getenv("MAX_LOT_SIZE", 10.0))
 MAX_OPEN_POSITIONS = int(os.getenv("MAX_OPEN_POSITIONS", 20))
 DEFAULT_RISK_THRESHOLD_PCT = float(os.getenv("DEFAULT_RISK_THRESHOLD_PCT", 5.0))
 
+# If set, ALL auto-execution is refused regardless of per-scanner settings.
+# Useful as a single-command emergency stop (edit .env, restart).
+AUTO_EXEC_KILL_SWITCH = os.getenv("AUTO_EXEC_KILL_SWITCH", "false").lower() == "true"
+
 # ── LLM (Phase 2) ──────────────────────────────────────────────────────
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LLM_MODEL = os.getenv("LLM_MODEL", "claude-opus-4-6-20251101")

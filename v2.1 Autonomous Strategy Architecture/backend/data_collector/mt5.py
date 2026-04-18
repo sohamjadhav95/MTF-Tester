@@ -152,6 +152,7 @@ class MT5Provider(DataProvider):
             "point": info.point,
             "spread": info.spread,
             "trade_contract_size": info.trade_contract_size,
+            "trade_stops_level": info.trade_stops_level,
             "volume_min": info.volume_min,
             "volume_max": info.volume_max,
             "volume_step": info.volume_step,
@@ -161,6 +162,19 @@ class MT5Provider(DataProvider):
             "trade_tick_value": info.trade_tick_value,
             "trade_tick_size": info.trade_tick_size,
         }
+
+    def get_symbol_tick(self, symbol: str) -> dict | None:
+        """Return current bid/ask for a symbol, or None."""
+        if not self._connected:
+            return None
+        try:
+            mt5 = _get_mt5()
+        except RuntimeError:
+            return None
+        tick = mt5.symbol_info_tick(symbol)
+        if tick is None:
+            return None
+        return {"ask": tick.ask, "bid": tick.bid, "time": tick.time}
 
     def get_timeframes(self) -> list[dict]:
         """Return supported MT5 timeframes."""
