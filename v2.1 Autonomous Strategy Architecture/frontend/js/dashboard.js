@@ -998,8 +998,10 @@ function addSignalToScannerPanel(sig) {
     `;
     signalsBody.insertBefore(row, signalsBody.firstChild);
 
-    // Keep max 100 entries
-    while (signalsBody.children.length > 100) signalsBody.removeChild(signalsBody.lastChild);
+    // Keep max 2000 entries (allows large historical sync without truncating)
+    while (signalsBody.children.length > 2000) {
+        signalsBody.removeChild(signalsBody.lastChild);
+    }
 }
 
 function updateGlobalSignalDOM(update) {
