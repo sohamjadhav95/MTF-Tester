@@ -21,30 +21,32 @@ let _globalIndicators = {};  // TRACKS NO MORE
 let _renderedSignalIds = new Set(); // Dedup: track displayed signal IDs
 
 document.addEventListener('DOMContentLoaded', () => {
+    try {
+        // ── Navigation ────────────────────────────────────────────
+        initNavigation();
+        initMarketTabs();
+        initMT5Connection();
+        loadStrategies();
+        pollAccountInfo();
+        initDeployTrades();
+        initStrategyUpload();
+        initWatchlistPanel();
+        connectGlobalSignalWS();
 
-
-    // ── User Init ─────────────────────────────────────────────
-    const username = "User";
-    document.getElementById('user-name').textContent = username;
-    document.getElementById('user-avatar').textContent = username.charAt(0).toUpperCase();
-
-    // ── Navigation ────────────────────────────────────────────
-    initNavigation();
-    initMarketTabs();
-    initMT5Connection();
-    loadStrategies();
-    pollAccountInfo();
-    initDeployTrades();
-    initStrategyUpload();
-    initWatchlistPanel();
-    connectGlobalSignalWS();
-
-    // Sync active scanners from backend to restore UI state on refresh
-    syncActiveScanners().then(() => {
-        // Sync auto-trade state
-        syncAutoTradeState();
-        checkOrphans();
-    });
+        // Sync active scanners from backend to restore UI state on refresh
+        syncActiveScanners().then(() => {
+            // Sync auto-trade state
+            syncAutoTradeState();
+            checkOrphans();
+        });
+    } catch (err) {
+        document.body.innerHTML += `<div style="position:fixed;top:0;left:0;right:0;background:red;color:white;z-index:99999;padding:20px;font-family:monospace;white-space:pre-wrap;">
+ERROR IN DASHBOARD.JS DOMContentLoaded:
+${err.message}
+${err.stack}
+</div>`;
+        console.error(err);
+    }
 });
 
 async function checkOrphans() {
@@ -76,8 +78,8 @@ function initNavigation() {
 
 function switchPanel(panelId) {
     // Nav items
-    document.querySelectorAll('.nav-item[data-panel]').forEach(n => n.classList.remove('active'));
-    const nav = document.querySelector(`.nav-item[data-panel="${panelId}"]`);
+    document.querySelectorAll('.nav-item[data-panel], .scanner-card[data-panel]').forEach(n => n.classList.remove('active'));
+    const nav = document.querySelector(`[data-panel="${panelId}"]`);
     if (nav) nav.classList.add('active');
 
     // Panels
@@ -160,38 +162,99 @@ function initMT5Connection() {
 }
 
 function setMT5Connected(on, info = null) {
-    const dot = document.getElementById('conn-dot');
-    const txt = document.getElementById('conn-text');
+    const dot = document.getElementById('footer-mt5-led');
+    const txt = document.getElementById('footer-mt5-status');
     const badge = document.getElementById('mt5-status-badge');
 
     if (on) {
-        dot.className = 'dot dot-on';
-        txt.textContent = info ? `${info.server || 'Connected'}` : 'Connected';
-        badge.className = 'badge badge-success';
-        badge.textContent = 'Connected';
+        if (dot) dot.className = 'led led-live';
+        if (txt) txt.textContent = info ? `MT5: ${info.server || 'Connected'}` : 'MT5: Connected';
+        if (badge) {
+            badge.className = 'badge badge-success';
+            badge.textContent = 'Connected';
+        }
         if (info) updateAccountDisplay(info);
     } else {
-        dot.className = 'dot dot-off';
-        txt.textContent = 'Disconnected';
-        badge.className = 'badge badge-error';
-        badge.textContent = 'Disconnected';
+        if (dot) dot.className = 'led led-error';
+        if (txt) txt.textContent = 'MT5: Disconnected';
+        if (badge) {
+            badge.className = 'badge badge-error';
+            badge.textContent = 'Disconnected';
+        }
     }
 }
+
+let _equityHistory = []; // In-memory equity tracking
 
 function updateAccountDisplay(info) {
     if (!info) return;
     const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+    
+    // Legacy dash center
     set('acc-balance', fmtMoney(info.balance));
     set('acc-equity', fmtMoney(info.equity || info.balance));
     set('acc-margin', fmtMoney(info.free_margin));
     set('acc-server', info.server || '—');
 
+    // New Right Pane / Header
+    const eqAmt = info.equity || info.balance;
+    set('header-equity', fmtMoney(eqAmt));
+    set('rp-equity', fmtMoney(eqAmt));
+    set('rp-balance', fmtMoney(info.balance));
+    set('rp-margin', fmtMoney(info.free_margin));
+
     const pnl = info.profit;
+    const pnlStr = pnl != null ? (pnl >= 0 ? '+' : '') + fmtMoney(pnl) : '—';
+    
+    // Dash center PNL
     const pnlEl = document.getElementById('acc-pnl');
     if (pnlEl) {
-        pnlEl.textContent = pnl != null ? fmtMoney(pnl) : '—';
+        pnlEl.textContent = pnlStr;
         if (pnl != null) pnlEl.style.color = colorVal(pnl);
     }
+    
+    // RP Floating PNL
+    const rpFloatEl = document.getElementById('rp-floating');
+    if (rpFloatEl) {
+        rpFloatEl.textContent = pnlStr;
+        if (pnl != null) rpFloatEl.style.color = colorVal(pnl);
+    }
+
+    // Sparkline data point
+    if (info.equity) {
+        _equityHistory.push(info.equity);
+        if (_equityHistory.length > 50) _equityHistory.shift();
+        renderSparkline();
+    }
+}
+
+function renderSparkline() {
+    const c = document.getElementById('rp-sparkline-container');
+    if (!c || _equityHistory.length < 2) return;
+    
+    const w = c.clientWidth || 280;
+    const h = 40;
+    const pts = _equityHistory;
+    const min = Math.min(...pts);
+    const max = Math.max(...pts);
+    const range = max - min || 1;
+    
+    const dx = w / (pts.length - 1);
+    let path = `M 0,${h - ((pts[0] - min) / range) * h}`;
+    
+    for (let i = 1; i < pts.length; i++) {
+        const x = i * dx;
+        const y = h - ((pts[i] - min) / range) * h;
+        path += ` L ${x},${y}`;
+    }
+    
+    let color = pts[pts.length - 1] >= pts[0] ? 'var(--long)' : 'var(--short)';
+    
+    c.innerHTML = `
+        <svg width="100%" height="100%" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+            <path d="${path}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+    `;
 }
 
 // ═══ SYMBOL LOADING & AUTOCOMPLETE ═══════════════════════════
@@ -288,35 +351,93 @@ async function refreshAccountInfo() {
 async function refreshPositions() {
     try {
         const data = await api('/api/order/positions');
-        const container = document.getElementById('dash-positions');
         const positions = data.positions || [];
+        
+        // Update header counters
         const posEl = document.getElementById('acc-positions');
         if (posEl) posEl.textContent = positions.length;
+        
+        const rpCount = document.getElementById('rp-pos-count');
+        if (rpCount) rpCount.textContent = `${positions.length} open`;
+        
+        const rpTitleCount = document.getElementById('rp-pos-title-count');
+        if (rpTitleCount) rpTitleCount.textContent = positions.length;
+
+        const rpList = document.getElementById('rp-positions-list');
+        const dashContainer = document.getElementById('dash-positions');
 
         if (positions.length === 0) {
-            container.innerHTML = `<div class="empty-state" style="padding: 24px;"><div class="empty-state-desc">No open positions</div></div>`;
+            const emptyHtml = `<div class="empty-state"><i data-lucide="inbox" class="empty-state-icon" style="width:24px; height:24px; opacity:0.3; margin-bottom:8px;"></i><span class="empty-state-desc" style="font-size:11px;">No open positions</span></div>`;
+            if (rpList) rpList.innerHTML = emptyHtml;
+            if (dashContainer) dashContainer.innerHTML = emptyHtml;
+            if (typeof lucide !== 'undefined') lucide.createIcons();
             return;
         }
 
-        container.innerHTML = positions.map(p => {
-            const dir = (p.type || '').toUpperCase().includes('BUY') ? 'BUY' : 'SELL';
-            const cls = dir === 'BUY' ? 'long' : 'short';
-            const pnlCls = p.profit >= 0 ? 'profit' : 'loss';
-            return `<div class="pos-row">
-                <span class="badge badge-${cls}">${dir}</span>
-                <div class="pos-col" style="flex:1;">
-                    <span class="pos-symbol">${p.symbol}</span>
-                    <span class="pos-detail">Vol: ${p.volume}  ·  Ticket: ${p.ticket}</span>
-                </div>
-                <div class="pos-col" style="text-align:right;">
-                    <span class="mono" style="font-size:var(--fs-xs); color:var(--text-2);">Open: ${fmtPrice(p.price_open)}</span>
-                    <span class="mono" style="font-size:var(--fs-xs); color:var(--text-2);">Curr: ${fmtPrice(p.price_current)}</span>
-                </div>
-                <span class="pos-pnl ${pnlCls}">${fmtMoney(p.profit)}</span>
-            </div>`;
-        }).join('');
+        // Render Right Pane Format
+        if (rpList) {
+            rpList.innerHTML = positions.map(p => {
+                const isBuy = (p.type || '').toUpperCase().includes('BUY');
+                const pnl = p.profit >= 0 ? '+' + fmtMoney(p.profit) : fmtMoney(p.profit);
+                const pnlCls = p.profit >= 0 ? 'profit' : 'loss';
+                const cls = isBuy ? 'buy' : 'sell';
+                const ts = p.time_setup ? fmtTime(p.time_setup) : '';
+                return `
+                <div class="pos-row">
+                    <div style="display:flex; flex-direction:column; gap:2px;">
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <span class="pos-row-sym">${p.symbol}</span>
+                            <span class="pos-row-dir ${cls}">${isBuy ? 'BUY' : 'SELL'}</span>
+                        </div>
+                        <div class="pos-row-prices">#${p.ticket} @ ${fmtPrice(p.price_open)}</div>
+                    </div>
+                    <div style="display:flex; flex-direction:column; align-items:flex-end; gap:2px;">
+                        <span class="pos-row-pips ${pnlCls}">${pnl}</span>
+                        <span class="pos-row-prices" style="color:var(--text-2);">${fmtPrice(p.price_current)}</span>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        // Render Dash Center Format (Legacy)
+        if (dashContainer) {
+            dashContainer.innerHTML = positions.map(p => {
+                const dir = (p.type || '').toUpperCase().includes('BUY') ? 'BUY' : 'SELL';
+                const cls = dir === 'BUY' ? 'long' : 'short';
+                const pnlCls = p.profit >= 0 ? 'profit' : 'loss';
+                return `<div class="pos-row">
+                    <span class="badge badge-${cls}">${dir}</span>
+                    <div class="pos-col" style="flex:1;">
+                        <span class="pos-symbol">${p.symbol}</span>
+                        <span class="pos-detail">Vol: ${p.volume}  ·  Ticket: ${p.ticket}</span>
+                    </div>
+                    <div class="pos-col" style="text-align:right;">
+                        <span class="mono" style="font-size:var(--fs-xs); color:var(--text-2);">Open: ${fmtPrice(p.price_open)}</span>
+                        <span class="mono" style="font-size:var(--fs-xs); color:var(--text-2);">Curr: ${fmtPrice(p.price_current)}</span>
+                    </div>
+                    <span class="pos-pnl ${pnlCls}">${fmtMoney(p.profit)}</span>
+                </div>`;
+            }).join('');
+        }
     } catch (e) { /* not connected */ }
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+    const btn = document.getElementById('rp-close-all-btn');
+    if (btn) {
+        btn.addEventListener('click', async () => {
+            const ok = await showConfirm('Close All', 'Close all open positions?');
+            if(!ok) return;
+            try {
+                await api('/api/order/close_all', 'POST');
+                showToast('Closing all positions...', 'info');
+                refreshPositions();
+            } catch(e) {
+                showToast(e.message, 'error');
+            }
+        });
+    }
+});
 
 function pollAccountInfo() {
     setInterval(() => {
@@ -333,6 +454,7 @@ async function loadStrategies() {
         _strategies = data.strategies || [];
 
         const sel = document.getElementById('cfg-strategy');
+        updateDashboardTelemetry();
         if (!sel) return;
         sel.innerHTML = _strategies.map(s => `<option value="${s.name}">${s.name}</option>`).join('');
 
@@ -640,8 +762,49 @@ async function stopScanner(scannerId) {
     showToast(`Scanner "${name}" stopped`, 'info');
 }
 
+function updateScannerCard(sid) {
+    const sc = _activeScanners[sid];
+    const led = document.getElementById(`nav-led-${sid}`);
+    const chipsWrapper = document.getElementById(`nav-chips-${sid}`);
+    const badge = document.getElementById(`nav-badge-${sid}`);
+    if (!sc || !led || !chipsWrapper) return;
+    
+    // LED State
+    if (!sc.autoTrade && sc.autoDisabledReason && sc.autoDisabledReason !== 'user') {
+        led.className = 'led led-error';
+        led.title = `Halted: ${sc.autoDisabledReason}`;
+    } else {
+        led.className = 'led led-live';
+        led.title = sc.autoTrade ? 'Auto-Trade Active' : 'Live Running';
+    }
+    
+    // Chips
+    const countSpan = badge ? badge.outerHTML : `<span class="chip chip-count" id="nav-badge-${sid}">${sc.signals ? sc.signals.length : 0}</span>`;
+    let html = countSpan;
+    if (sc.autoTrade) html += `<span class="chip chip-auto">AUTO</span>`;
+    if (!sc.autoTrade && sc.autoDisabledReason && sc.autoDisabledReason !== 'user') html += `<span class="chip chip-warn">HALTED</span>`;
+    chipsWrapper.innerHTML = html;
+}
+
+function updateDashboardTelemetry() {
+    const scIds = Object.keys(_activeScanners);
+    let autoCount = 0;
+    scIds.forEach(id => { if (_activeScanners[id].autoTrade) autoCount++; });
+
+    const elScanners = document.getElementById('dash-active-scanners-count');
+    if (elScanners) elScanners.textContent = scIds.length;
+    
+    const elAutos = document.getElementById('dash-auto-engines-count');
+    if (elAutos) elAutos.textContent = autoCount;
+
+    const elSigs = document.getElementById('dash-strats-count');
+    if (elSigs) elSigs.textContent = _renderedSignalIds.size;
+}
+
 function refreshActiveStrategies() {
     const container = document.getElementById('active-strategies-list');
+    updateDashboardTelemetry();
+    
     if (!container) return;
 
     const ids = Object.keys(_activeScanners);
@@ -656,6 +819,8 @@ function refreshActiveStrategies() {
         const sc = _activeScanners[sid];
         const autoOn = sc.autoTrade || false;
         
+        updateScannerCard(sid);
+
         const disableBadge = !autoOn && sc.autoDisabledReason && sc.autoDisabledReason !== 'user'
             ? `<div class="badge badge-error" style="font-size:9px; cursor:help; margin-left:8px;" title="${sc.autoDisabledDetail || ''}">Halted: ${sc.autoDisabledReason}</div>`
             : '';
@@ -779,6 +944,7 @@ async function syncAutoTradeState() {
             }
         }
         refreshAutoTradeList();
+        updateDashboardTelemetry();
         
         if (r.kill_switch) {
             showToast('⚠️ Auto-trade global kill switch is ACTIVE in backend config', 'error', 10000);
@@ -812,13 +978,57 @@ function connectGlobalSignalWS() {
     };
 }
 
+let _activityFeed = [];
+
+function renderActivityFeed() {
+    const feedEl = document.getElementById('rp-activity-feed');
+    if (!feedEl) return;
+    
+    if (_activityFeed.length === 0) {
+        feedEl.innerHTML = `<div class="empty-state" style="padding: 24px;"><span class="empty-state-desc" style="font-size:11px;">Waiting for activity...</span></div>`;
+        return;
+    }
+    
+    feedEl.innerHTML = _activityFeed.map(item => {
+        let timeStr = new Date().toISOString().substring(11, 19);
+        if (item.timestamp) timeStr = new Date(item.timestamp).toISOString().substring(11, 19);
+        
+        if (item.feedType === 'signal') {
+            const sig = item;
+            const cls = sig.action === 'BUY' ? 'long' : 'short';
+            return `
+            <div class="rp-activity-row">
+                <span class="rp-activity-time">${timeStr}</span>
+                <span class="rp-activity-msg"><strong>${sig.symbol}</strong> signal</span>
+                <span class="rp-activity-status badge badge-${cls}">${sig.action}</span>
+            </div>`;
+        } else if (item.feedType === 'trade_update') {
+            const pnl = item.profit != null ? fmtMoney(item.profit) : '';
+            const pnlCls = item.profit >= 0 ? 'profit' : 'loss';
+            return `
+            <div class="rp-activity-row">
+                <span class="rp-activity-time">${timeStr}</span>
+                <span class="rp-activity-msg">Trade <strong>#${item.ticket}</strong> ${item.action}</span>
+                <span class="rp-activity-status ${pnlCls} mono" style="font-weight:600;">${pnl}</span>
+            </div>`;
+        }
+    }).join('');
+}
+
 function handleGlobalSignalMsg(msg) {
     if (msg.type === 'signal') {
         const sig = msg.data;
 
+        // Add to activity feed
+        _activityFeed.unshift({ ...sig, feedType: 'signal' });
+        if (_activityFeed.length > 20) _activityFeed.pop();
+        renderActivityFeed();
+
         // Deduplicate: skip if already rendered from API historical response
         if (sig.id && _renderedSignalIds.has(sig.id)) return;
         if (sig.id) _renderedSignalIds.add(sig.id);  // track it
+
+        updateDashboardTelemetry();
 
         // Route signal to scanner's full panel
         addSignalToScannerPanel(sig);
@@ -896,13 +1106,18 @@ function createScannerNavAndPanel(scannerId, scannerInfo) {
 
     // 1. Create nav item
     const navItem = document.createElement('div');
-    navItem.className = 'nav-item';
+    navItem.className = 'scanner-card';
     navItem.id = `nav-scanner-${scannerId}`;
     navItem.dataset.panel = panelId;
     navItem.innerHTML = `
-        <span class="nav-icon">📡</span>
-        <span class="nav-label">${sessionName}</span>
-        <span class="nav-badge" id="nav-badge-${scannerId}">0</span>
+        <div class="scanner-card-head">
+            <span class="scanner-card-name">${sessionName}</span>
+            <div class="led ${scannerInfo.autoDisabledReason ? 'led-error' : 'led-live'}" id="nav-led-${scannerId}"></div>
+        </div>
+        <div class="scanner-card-meta">${stratName} · ${symbol} · ${tfs}</div>
+        <div class="scanner-card-chips" id="nav-chips-${scannerId}">
+            <span class="chip chip-count" id="nav-badge-${scannerId}">0</span>
+        </div>
     `;
     navItem.addEventListener('click', () => switchPanel(panelId));
     scannerNavSection.appendChild(navItem);
@@ -922,8 +1137,27 @@ function createScannerNavAndPanel(scannerId, scannerInfo) {
                 <span class="badge badge-muted" id="panel-sig-count-${scannerId}">0 signals</span>
             </div>
         </div>
-        <div class="panel-body scanner-signal-panel-body" id="scanner-panel-body-${scannerId}">
-            <div class="scanner-signals-table">
+        <div class="panel-body scanner-signal-panel-body" id="scanner-panel-body-${scannerId}" style="display:flex; flex-direction:column; gap:var(--sp-4);">
+            <div class="stats-row" style="grid-template-columns: repeat(4, 1fr);">
+                <div class="stat-box" style="background:var(--bg-tertiary); border:1px solid var(--border-2);">
+                    <div class="stat-box-label">Total Signals</div>
+                    <div class="stat-box-value" id="panel-stat-total-${scannerId}">0</div>
+                </div>
+                <div class="stat-box" style="background:var(--bg-tertiary); border:1px solid var(--border-2);">
+                    <div class="stat-box-label" style="color:var(--long);">Longs</div>
+                    <div class="stat-box-value" id="panel-stat-long-${scannerId}">0</div>
+                </div>
+                <div class="stat-box" style="background:var(--bg-tertiary); border:1px solid var(--border-2);">
+                    <div class="stat-box-label" style="color:var(--short);">Shorts</div>
+                    <div class="stat-box-value" id="panel-stat-short-${scannerId}">0</div>
+                </div>
+                <div class="stat-box" style="background:var(--bg-tertiary); border:1px solid var(--border-2);">
+                    <div class="stat-box-label">Success Rate (Est)</div>
+                    <div class="stat-box-value" id="panel-stat-win-${scannerId}">—</div>
+                </div>
+            </div>
+            
+            <div class="scanner-signals-table" style="flex:1;">
                 <div class="scanner-signals-header">
                     <span>Direction</span>
                     <span>Symbol</span>
@@ -935,7 +1169,7 @@ function createScannerNavAndPanel(scannerId, scannerInfo) {
                     <span>Time</span>
                 </div>
                 <div class="scanner-signals-body" id="scanner-signals-${scannerId}">
-                    <div class="scanner-signals-empty">Waiting for signals…</div>
+                    <div class="scanner-signals-empty" style="text-align:center; padding:40px; color:var(--text-3); font-size:12px;">Waiting for signals…</div>
                 </div>
             </div>
         </div>
@@ -1002,13 +1236,39 @@ function addSignalToScannerPanel(sig) {
     const empty = signalsBody.querySelector('.scanner-signals-empty');
     if (empty) empty.remove();
 
-    // Update badge counts
+    // Update badge counts and stat tiles
     const navBadge = document.getElementById(`nav-badge-${scannerId}`);
     const panelCount = document.getElementById(`panel-sig-count-${scannerId}`);
-    if (navBadge) navBadge.textContent = parseInt(navBadge.textContent || '0') + 1;
-    if (panelCount) {
-        const c = parseInt(navBadge?.textContent || '0');
-        panelCount.textContent = `${c} signal${c !== 1 ? 's' : ''}`;
+    const navChips = document.getElementById(`nav-chips-${scannerId}`);
+    
+    // We already pushed the new signal into _activeScanners[scannerId].signals above
+    const sigs = _activeScanners[scannerId].signals;
+    const total = sigs.length;
+    let longs = 0, shorts = 0, wins = 0, finished = 0;
+    
+    sigs.forEach(s => {
+        if (s.direction === 'BUY') longs++;
+        if (s.direction === 'SELL') shorts++;
+        if (s.status === 'TP HIT' || (s.profit && s.profit > 0)) wins++;
+        if (s.status === 'TP HIT' || s.status === 'SL HIT') finished++;
+    });
+
+    if (navBadge) navBadge.textContent = total;
+    if (panelCount) panelCount.textContent = `${total} signal${total !== 1 ? 's' : ''}`;
+    
+    // Update active badges if needed
+    updateScannerCard(scannerId);
+
+    const elTotal = document.getElementById(`panel-stat-total-${scannerId}`);
+    if (elTotal) elTotal.textContent = total;
+    const elLong = document.getElementById(`panel-stat-long-${scannerId}`);
+    if (elLong) elLong.textContent = longs;
+    const elShort = document.getElementById(`panel-stat-short-${scannerId}`);
+    if (elShort) elShort.textContent = shorts;
+    const elWin = document.getElementById(`panel-stat-win-${scannerId}`);
+    if (elWin) {
+        if (finished === 0) elWin.textContent = '—';
+        else elWin.textContent = `${Math.round((wins/finished)*100)}%`;
     }
 
     const cls = sig.direction === 'BUY' ? 'long' : 'short';

@@ -80,3 +80,131 @@ function setLoading(btn, on, txt = null) {
         btn.textContent = btn._orig || txt || 'Submit';
     }
 }
+
+// ── App Initialization ─────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+    // Initialize Lucide icons
+    if (typeof lucide !== 'undefined') {
+        lucide.createIcons();
+    }
+
+    // Header Clock
+    const timeEl = document.getElementById('server-time');
+    if (timeEl) {
+        setInterval(() => {
+            const now = new Date();
+            timeEl.textContent = now.toISOString().substring(11, 19) + ' UTC';
+        }, 1000);
+        timeEl.textContent = new Date().toISOString().substring(11, 19) + ' UTC';
+    }
+
+    initCmdK();
+});
+
+// ── Command Palette (cmdk) ────────────────────────────────────
+function initCmdK() {
+    const overlay = document.getElementById('cmdk-overlay');
+    const input = document.getElementById('cmdk-input');
+    const listEl = document.getElementById('cmdk-list');
+    if (!overlay || !input || !listEl) return;
+
+    let isOpen = false;
+    let selectedIndex = 0;
+    let currentResults = [];
+
+    const commands = [
+        { id: 'dash', title: 'Go to Dashboard', category: 'Navigation', icon: 'layout-dashboard', action: () => switchPanel('dashboard') },
+        { id: 'strat', title: 'Go to Strategies', category: 'Navigation', icon: 'cpu', action: () => switchPanel('strategies') },
+        { id: 'chart', title: 'Go to Technical Charts', category: 'Navigation', icon: 'line-chart', action: () => switchPanel('charts') },
+        { id: 'close-all', title: 'Close All Open Positions', category: 'Trading', icon: 'x-circle', action: () => {
+            document.getElementById('rp-close-all-btn')?.click();
+        } },
+        { id: 'kill-switch', title: 'Toggle Emergency Kill Switch', category: 'System', icon: 'alert-triangle', action: () => {
+            document.getElementById('global-kill-switch')?.click();
+        } }
+    ];
+
+    const fuse = new Fuse(commands, { keys: ['title', 'category'], threshold: 0.3 });
+
+    function render(results) {
+        currentResults = results;
+        listEl.innerHTML = '';
+        if (results.length === 0) {
+            listEl.innerHTML = '<div style="padding:16px; text-align:center; color:var(--text-3); font-size:12px;">No commands found</div>';
+            return;
+        }
+        results.forEach((cmd, idx) => {
+            const el = document.createElement('div');
+            el.className = 'cmdk-item';
+            if (idx === selectedIndex) el.setAttribute('aria-selected', 'true');
+            el.innerHTML = `
+                <div class="cmdk-item-left">
+                    <i data-lucide="${cmd.icon}" class="cmdk-item-icon"></i>
+                    <span style="font-size:13px;">${cmd.title}</span>
+                </div>
+                <span style="font-size:10px; color:var(--text-3); text-transform:uppercase;">${cmd.category}</span>
+            `;
+            el.addEventListener('mouseover', () => { selectedIndex = idx; render(currentResults); });
+            el.addEventListener('click', () => { exec(idx); });
+            listEl.appendChild(el);
+        });
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+        
+        // Scroll into view
+        const selEl = listEl.children[selectedIndex];
+        if (selEl) selEl.scrollIntoView({ block: 'nearest' });
+    }
+
+    function toggle() {
+        isOpen = !isOpen;
+        if (isOpen) {
+            overlay.classList.add('open');
+            input.value = '';
+            selectedIndex = 0;
+            render(commands);
+            setTimeout(() => input.focus(), 50);
+        } else {
+            overlay.classList.remove('open');
+            input.blur();
+        }
+    }
+
+    function exec(idx) {
+        if (!currentResults[idx]) return;
+        const cmd = currentResults[idx];
+        toggle();
+        cmd.action();
+    }
+
+    // Toggle shortcut
+    document.addEventListener('keydown', e => {
+        if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            toggle();
+        }
+        if (isOpen) {
+            if (e.key === 'Escape') toggle();
+            else if (e.key === 'ArrowDown') { e.preventDefault(); selectedIndex = Math.min(selectedIndex + 1, currentResults.length - 1); render(currentResults); }
+            else if (e.key === 'ArrowUp') { e.preventDefault(); selectedIndex = Math.max(selectedIndex - 1, 0); render(currentResults); }
+            else if (e.key === 'Enter') { e.preventDefault(); exec(selectedIndex); }
+        }
+    });
+
+    // Close on backdrop click
+    overlay.addEventListener('click', e => { if (e.target === overlay) toggle(); });
+
+    // Handle typing search
+    input.addEventListener('input', e => {
+        const q = e.target.value.trim();
+        selectedIndex = 0;
+        if (!q) render(commands);
+        else {
+            const res = fuse.search(q).map(r => r.item);
+            render(res);
+        }
+    });
+
+    // Trigger button
+    const trigger = document.querySelector('.cmdk-trigger');
+    if (trigger) trigger.addEventListener('click', toggle);
+}
