@@ -47,6 +47,10 @@ async def lifespan(app: FastAPI):
     from order.router import _risk_guard
     AutoExecutor.get(risk_guard=_risk_guard).attach_to_bus()
 
+    # Reconcile orphan positions
+    from reconcile import startup_reconcile
+    await startup_reconcile()
+
     yield
 
 # ── App ────────────────────────────────────────────────────────────────

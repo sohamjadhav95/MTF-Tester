@@ -141,7 +141,37 @@ class MyHTFStrategy(BaseStrategy):
 HTF bar just became complete). The scanner deduplicates so the signal is
 emitted exactly once per HTF bar.
 
+## Persistent state across bar loops
+
+`self._cache`   — derived from input data; safe to rebuild from scratch.
+                Populate in `on_start()`. May be touched by `on_update()`.
+`self.state`    — persistent across bar loops in LIVE mode.
+                The engine NEVER touches this. Use it for counters, flags,
+                state machines — anything whose value depends on the history
+                of `on_bar()` calls.
+
+In BACKTEST: `on_start` runs once; `self.state` accumulates normally through the loop.
+In LIVE: `on_start` runs once at session start; `on_update` runs on each poll;
+         `self.state` persists across polls.
+
+If your strategy is purely a function of (index, data), you can ignore `self.state`
+entirely. If your strategy has a state machine, a counter, or any "memory", use
+`self.state` and ONLY `self.state` for it.
+
 ## Return Values from on_bar()
+
+It is preferred to return the structured `Signal` dataclass imported from `_template.py`:
+
+```python
+from strategies._template import Signal, HOLD
+
+# ...
+return Signal(direction="BUY", sl=sl, tp=tp)
+# OR
+return HOLD
+```
+
+For backward compatibility, strings and tuples are still supported:
 
 | Return | Meaning |
 |--------|---------|

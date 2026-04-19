@@ -87,6 +87,9 @@ class LiveScanEngine:
         self._ws_thread: Optional[threading.Thread] = None
         self._poll_task = None
 
+        self._consecutive_bar_faults = 0
+        self.MAX_BAR_FAULTS = 5
+
         self.is_binance = hasattr(provider, "_session")
 
     @property
@@ -281,10 +284,22 @@ class LiveScanEngine:
 
         # Recalibrate strategy cache when new bars arrived
         if has_new_bars:
+            new_bars = df[df["time"] > old_last_time]
             try:
-                self.strategy.on_start(df)
+                self.strategy.on_update(new_bars, df)
             except Exception as e:
-                log.warning(f"on_start recalibration failed: {e}")
+                log.error(f"Scanner halted — strategy.on_update() raised: {e}", exc_info=True)
+                self._running = False
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        asyncio.run_coroutine_threadsafe(
+                            self._emit_scanner_error(f"Strategy crashed: {e}"),
+                            loop,
+                        )
+                except Exception:
+                    pass
+                return []
 
         # Find bar indices to process
         new_bar_mask = df["time"] > old_last_time
@@ -305,6 +320,30 @@ class LiveScanEngine:
 
             try:
                 raw = self.strategy.on_bar(idx, df)
+                self._consecutive_bar_faults = 0   # reset on success
+            except Exception as e:
+                self._consecutive_bar_faults += 1
+                log.error(
+                    f"Strategy.on_bar() raised | scanner={self.scanner_id} "
+                    f"bar_idx={idx} bar_time={df.iloc[idx]['time']} | {type(e).__name__}: {e}",
+                    exc_info=True,
+                )
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        asyncio.run_coroutine_threadsafe(
+                            self._emit_scanner_error(f"{type(e).__name__}: {e}"),
+                            loop,
+                        )
+                except Exception:
+                    pass
+                if self._consecutive_bar_faults >= self.MAX_BAR_FAULTS:
+                    log.error(f"Scanner HALTED after {self.MAX_BAR_FAULTS} consecutive bar faults")
+                    self._running = False
+                    break   # exit the new_indices loop
+                continue   # skip this bar, try the next
+
+            try:
                 direction, sl, tp = self._parse_signal(raw)
                 if direction in ("BUY", "SELL") and self._last_signal_time != b_time:
                     # Bug 4: HTF-bar dedup
@@ -402,9 +441,22 @@ class LiveScanEngine:
         self._rolling_df = df
 
         try:
-            self.strategy.on_start(df)
-        except Exception:
-            pass
+            new_bars = pd.DataFrame([bar_dict])
+            self.strategy.on_update(new_bars, df)
+        except Exception as e:
+            log.error(f"Scanner halted — strategy.on_update() raised: {e}", exc_info=True)
+            self._running = False
+            self._ws_running = False
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.run_coroutine_threadsafe(
+                        self._emit_scanner_error(f"Strategy crashed: {e}"),
+                        loop,
+                    )
+            except Exception:
+                pass
+            return
 
         idx = len(df) - 1
         bar = df.iloc[idx]
@@ -425,6 +477,30 @@ class LiveScanEngine:
 
         try:
             raw = self.strategy.on_bar(idx, df)
+            self._consecutive_bar_faults = 0
+        except Exception as e:
+            self._consecutive_bar_faults += 1
+            log.error(
+                f"Strategy.on_bar() raised | scanner={self.scanner_id} "
+                f"bar_idx={idx} bar_time={bar['time']} | {type(e).__name__}: {e}",
+                exc_info=True,
+            )
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.run_coroutine_threadsafe(
+                        self._emit_scanner_error(f"{type(e).__name__}: {e}"),
+                        loop,
+                    )
+            except Exception:
+                pass
+            if self._consecutive_bar_faults >= self.MAX_BAR_FAULTS:
+                log.error(f"Scanner HALTED after {self.MAX_BAR_FAULTS} consecutive bar faults")
+                self._running = False
+                self._ws_running = False
+            return
+
+        try:
             direction, sl, tp = self._parse_signal(raw)
             if direction in ("BUY", "SELL") and self._last_signal_time != bar["time"]:
                 # Bug 4: HTF-bar dedup (Binance WS path)
@@ -480,6 +556,16 @@ class LiveScanEngine:
         from signals.bus import SignalBus
         await SignalBus.get().publish_trade_update(upd)
 
+    async def _emit_scanner_error(self, message: str):
+        from signals.bus import SignalBus
+        await SignalBus.get().publish_trade_update({
+            "type": "trade_update",
+            "status": "SCANNER_ERROR",
+            "scanner_id": self.scanner_id,
+            "error": message,
+            "time": datetime.now(timezone.utc).isoformat() + "Z",
+        }, global_only=True)
+
     # ── Helpers ─────────────────────────────────────────────────
 
     def _check_active_trade_hits(self, bar, t_str: str) -> List[Dict]:
@@ -518,14 +604,30 @@ class LiveScanEngine:
             s += "Z"
         return s
 
-    @staticmethod
-    def _parse_signal(raw) -> Tuple:
-        if isinstance(raw, tuple) and len(raw) >= 1:
-            direction = str(raw[0]).upper() if raw[0] else "HOLD"
-            sl = float(raw[1]) if len(raw) > 1 and raw[1] is not None else None
-            tp = float(raw[2]) if len(raw) > 2 and raw[2] is not None else None
-            return direction, sl, tp
-        return str(raw).upper() if raw else "HOLD", None, None
+    def _parse_signal(self, raw) -> Tuple[str, Optional[float], Optional[float]]:
+        """Accept Signal, str, tuple, or None. Raise on anything else."""
+        from strategies._template import Signal
+        if raw is None:
+            return ("HOLD", None, None)
+        if isinstance(raw, Signal):
+            return (raw.direction, raw.sl, raw.tp)
+        if isinstance(raw, str):
+            d = raw.upper().strip()
+            if d not in ("BUY", "SELL", "HOLD"):
+                raise ValueError(f"Strategy returned string {raw!r}; must be BUY/SELL/HOLD")
+            return (d, None, None)
+        if isinstance(raw, tuple):
+            if len(raw) == 1:
+                return (self._parse_signal(raw[0])[0], None, None)
+            if len(raw) == 3:
+                d, sl, tp = raw
+                d = str(d).upper().strip()
+                if d not in ("BUY", "SELL", "HOLD"):
+                    raise ValueError(f"Strategy returned tuple with direction {raw[0]!r}")
+                return (d, float(sl) if sl is not None else None,
+                           float(tp) if tp is not None else None)
+            raise ValueError(f"Strategy returned tuple of length {len(raw)}; must be 1 or 3")
+        raise ValueError(f"Strategy returned unsupported type {type(raw).__name__}")
 
 
 # ── Backward-compat alias (router.py imports MTFLiveEngine) ──────

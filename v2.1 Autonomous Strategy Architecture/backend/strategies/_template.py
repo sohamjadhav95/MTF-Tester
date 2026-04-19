@@ -19,10 +19,37 @@ DESIGN RULE:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar, Type
+from dataclasses import dataclass
+from typing import Any, ClassVar, Type, Optional, Literal
 
 import pandas as pd
 from pydantic import BaseModel
+
+
+@dataclass
+class Signal:
+    """
+    Structured signal return type. Preferred over raw string/tuple.
+    
+    direction: 'BUY' | 'SELL' | 'HOLD'
+    sl:        Absolute price level for stop loss. None = no SL.
+    tp:        Absolute price level for take profit. None = no TP.
+    metadata:  Optional dict for strategy-specific info (shown in signal panel, not traded on).
+    """
+    direction: Literal["BUY", "SELL", "HOLD"]
+    sl: Optional[float] = None
+    tp: Optional[float] = None
+    metadata: Optional[dict] = None
+    
+    def __post_init__(self):
+        if self.direction not in ("BUY", "SELL", "HOLD"):
+            raise ValueError(f"direction must be BUY/SELL/HOLD, got {self.direction!r}")
+        if self.sl is not None and self.sl <= 0:
+            raise ValueError(f"sl must be positive, got {self.sl}")
+        if self.tp is not None and self.tp <= 0:
+            raise ValueError(f"tp must be positive, got {self.tp}")
+
+HOLD = Signal("HOLD")
 
 
 TF_DURATION = {
@@ -77,6 +104,7 @@ class BaseStrategy(ABC):
         else:
             self.config = self.config_model()
         self._cache: dict = {}
+        self.state: dict = {}
 
     @classmethod
     def get_json_schema(cls) -> dict:
@@ -85,39 +113,29 @@ class BaseStrategy(ABC):
 
     def on_start(self, data: pd.DataFrame) -> None:
         """
-        Called ONCE before the bar loop, and ALSO on each live poll when new bars
-        arrive. Live calls receive the updated rolling M1 DataFrame (last 3000 bars).
-        Keep this method fast — it runs on every M1 update (~once/minute in live mode).
-
-        data: Full M1 DataFrame (up to 3000 bars).
-              Columns: time, open, high, low, close, volume, spread
-
-        Pre-compute ALL indicators here. Store everything in self._cache.
-        Index positions in cache arrays MUST align with M1 bar indices.
-
-        If you need H4 data:
-            h4 = self._resample(data, '4H')
-            # compute H4 indicators
-            # map H4 signal back to M1 index (see _resample helper below)
-
-        IMPORTANT: Do NOT reset self._cache here in a way that loses live state.
-        Override carefully if you maintain persistent state across bar loops.
-
-        REQUIRED cache entries (if your strategy uses HTF):
-            self._cache["m1_to_htf"]  : list[int] — from _m1_to_completed_htf_index
-            self._cache["htf_times"]  : array — htf bar open times (np.datetime64 or pd.Timestamp)
-
-        These enable the live scanner to dedup signals by HTF-bar open-time rather
-        than by index (which is unstable across rolling-window trims).
+        Called ONCE at the very start of a scanner session, and ONCE at the
+        start of every backtest. NOT called on live polls.
+        Populate self._cache with derived-from-data tables.
         """
         pass
+
+    def on_update(self, new_bars: pd.DataFrame, data: pd.DataFrame) -> None:
+        """
+        Called on EACH live poll when new M1 bars arrive.
+        Default: re-runs on_start with the full rolling window (idempotent rebuild).
+        Override to do incremental updates without wiping self._cache or self.state.
+        
+        new_bars: only the newly-arrived rows.
+        data:     full rolling DataFrame (includes new_bars as tail).
+        """
+        self.on_start(data)
 
     def on_finish(self, data: pd.DataFrame) -> None:
         """Called once after bar loop ends. Override if needed."""
         pass
 
     @abstractmethod
-    def on_bar(self, index: int, data: pd.DataFrame) -> str | tuple:
+    def on_bar(self, index: int, data: pd.DataFrame) -> Signal | str | tuple | None:
         """
         Called on every M1 bar. Must be fast — reads from self._cache only.
 
@@ -127,6 +145,7 @@ class BaseStrategy(ABC):
                    DO NOT compute indicators here. Read from self._cache.
 
         Returns:
+            Signal object (preferred), or fallback tuple/string:
             "BUY"  | "SELL" | "HOLD"
             ("BUY",  sl_price, tp_price)
             ("SELL", sl_price, tp_price)

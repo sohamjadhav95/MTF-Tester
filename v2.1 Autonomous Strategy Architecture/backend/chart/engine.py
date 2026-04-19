@@ -53,7 +53,7 @@ class Backtester:
             current_bar = data.iloc[i]
 
             # ── 1. Check SL/TP on current bar BEFORE strategy signal ──────
-            if self.position is not None:
+            if self.position is not None and i >= self.config.warmup_bars:
                 sl_tp_result = self._check_sl_tp(current_bar)
                 if sl_tp_result:
                     self._close_position_reason(current_bar, self._get_spread(current_bar), i, sl_tp_result)
@@ -63,7 +63,9 @@ class Backtester:
 
             signal, sl_price, tp_price = self._parse_signal(raw)
             spread_points = self._get_spread(current_bar)
-            self._process_signal(signal, current_bar, spread_points, i, sl_price, tp_price)
+            
+            if i >= self.config.warmup_bars:
+                self._process_signal(signal, current_bar, spread_points, i, sl_price, tp_price)
 
             # ── 3. Track equity ─────────────────────────────────────────
             unrealized = 0.0
@@ -85,12 +87,14 @@ class Backtester:
                 ts_str = str(ts)
                 if not ts_str.endswith("Z") and "+" not in ts_str:
                     ts_str += "Z"
-            self.equity_curve.append({
-                "time": ts_str,
-                "equity": round(self.equity, 2),
-                "balance": round(self.balance, 2),
-                "drawdown_pct": round(drawdown_pct, 4),
-            })
+                    
+            if i >= self.config.warmup_bars:
+                self.equity_curve.append({
+                    "time": ts_str,
+                    "equity": round(self.equity, 2),
+                    "balance": round(self.balance, 2),
+                    "drawdown_pct": round(drawdown_pct, 4),
+                })
 
         # Close any remaining position at the last bar
         if self.position is not None:
@@ -98,9 +102,12 @@ class Backtester:
             self._close_position_reason(last_bar, self._get_spread(last_bar), len(data) - 1, "end")
 
 
-        # Convert bar data for frontend
+        # Convert bar data for frontend (exclude warmup bars)
         bar_data = []
-        for _, row in data.iterrows():
+        for i, row in data.iterrows():
+            if i < self.config.warmup_bars:
+                continue
+            
             t = row["time"]
             if isinstance(t, datetime):
                 t_str = t.replace(tzinfo=None).isoformat() + "Z"
@@ -137,14 +144,29 @@ class Backtester:
     # ─── Signal Parsing ──────────────────────────────────────────────────────
 
     def _parse_signal(self, raw) -> Tuple[str, Optional[float], Optional[float]]:
-        """Parse strategy return value — string or (signal, sl, tp) tuple."""
+        """Accept Signal, str, tuple, or None. Raise on anything else."""
+        from strategies._template import Signal
+        if raw is None:
+            return ("HOLD", None, None)
+        if isinstance(raw, Signal):
+            return (raw.direction, raw.sl, raw.tp)
+        if isinstance(raw, str):
+            d = raw.upper().strip()
+            if d not in ("BUY", "SELL", "HOLD"):
+                raise ValueError(f"Strategy returned string {raw!r}; must be BUY/SELL/HOLD")
+            return (d, None, None)
         if isinstance(raw, tuple):
-            signal = str(raw[0]).upper() if raw else "HOLD"
-            sl = float(raw[1]) if len(raw) > 1 and raw[1] is not None else None
-            tp = float(raw[2]) if len(raw) > 2 and raw[2] is not None else None
-            return signal, sl, tp
-        signal = str(raw).upper() if raw else "HOLD"
-        return signal, None, None
+            if len(raw) == 1:
+                return (self._parse_signal(raw[0])[0], None, None)
+            if len(raw) == 3:
+                d, sl, tp = raw
+                d = str(d).upper().strip()
+                if d not in ("BUY", "SELL", "HOLD"):
+                    raise ValueError(f"Strategy returned tuple with direction {raw[0]!r}")
+                return (d, float(sl) if sl is not None else None,
+                           float(tp) if tp is not None else None)
+            raise ValueError(f"Strategy returned tuple of length {len(raw)}; must be 1 or 3")
+        raise ValueError(f"Strategy returned unsupported type {type(raw).__name__}")
 
 
 

@@ -88,19 +88,40 @@ async def place_order(
 
     # ── Send ─────────────────────────────────────────────────────
     comment = _make_comment(ctx)
-    result = await asyncio.to_thread(
-        mt5.send_order,
-        symbol=req.symbol,
-        order_type=req.order_type,
-        direction=req.direction,
-        volume=req.volume,
-        price=req.price,
-        sl=req.sl,
-        tp=req.tp,
-        sl_enabled=req.sl_enabled,
-        tp_enabled=req.tp_enabled,
-        comment=comment,
-    )
+    try:
+        result = await asyncio.to_thread(
+            mt5.send_order,
+            symbol=req.symbol,
+            order_type=req.order_type,
+            direction=req.direction,
+            volume=req.volume,
+            price=req.price,
+            sl=req.sl,
+            tp=req.tp,
+            sl_enabled=req.sl_enabled,
+            tp_enabled=req.tp_enabled,
+            comment=comment,
+        )
+    except Exception as e:
+        # Broker crash during send. We do not know if the order was placed!
+        log.critical(f"Broker connection crashed during send_order: {e}")
+        write_order_audit(
+            action="CRASH",
+            symbol=req.symbol, direction=req.direction, volume=req.volume,
+            sl=req.sl, tp=req.tp,
+            result={"error": f"Broker disconnected during send: {e}", **asdict(ctx)},
+        )
+        raise RuntimeError(f"Broker crashed during send: {e}") from e
+
+    if result is None:
+        log.critical("Broker returned None. Connection lost during send.")
+        write_order_audit(
+            action="CRASH",
+            symbol=req.symbol, direction=req.direction, volume=req.volume,
+            sl=req.sl, tp=req.tp,
+            result={"error": "Broker returned None during send", **asdict(ctx)},
+        )
+        raise RuntimeError("Broker returned None during send_order")
 
     # ── Audit (always) ───────────────────────────────────────────
     write_order_audit(

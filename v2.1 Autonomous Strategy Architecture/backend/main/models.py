@@ -31,6 +31,7 @@ class BacktestRequest(BaseModel):
     fixed_spread_points: int = Field(default=20, ge=0)
     use_spread_from_data: bool = False
     provider: Literal["mt5", "binance"] = "mt5"
+    warmup_bars: int = Field(default=1440, ge=0)
 
 # ── MTF Scanner ────────────────────────────────────────────────────────
 class MTFStartRequest(BaseModel):
@@ -55,6 +56,7 @@ class AutoTradeConfig(BaseModel):
     volume: float = Field(default=0.1, gt=0, description="Fixed lots per auto-trade")
     override_sl: Optional[float] = None
     override_tp: Optional[float] = None
+    disable_reason: Optional[str] = None
 
 class OrderRequest(BaseModel):
     symbol: str
@@ -112,6 +114,7 @@ class BacktestConfig(BaseModel):
     point: float = 0.00001
     digits: int = 5
     contract_size: float = 100000.0
+    warmup_bars: int = 0
 
 class BacktestResult(BaseModel):
     config: BacktestConfig

@@ -132,7 +132,7 @@ async def get_history(limit: int = 100):
 @router.post("/auto/configure")
 async def configure_auto(req: AutoTradeConfig):
     """Enable or disable auto-trade for a scanner, with per-trade config."""
-    from order.auto_executor import AutoExecutor
+    from order.auto_executor import AutoExecutor, DisableReason
     ae = AutoExecutor.get()
 
     # Validate scanner exists
@@ -144,8 +144,28 @@ async def configure_auto(req: AutoTradeConfig):
         ae.enable(req.scanner_id, volume=req.volume,
                   override_sl=req.override_sl, override_tp=req.override_tp)
     else:
-        ae.disable(req.scanner_id)
+        r_str = req.disable_reason or "user"
+        try:
+            reason = DisableReason(r_str)
+        except ValueError:
+            reason = DisableReason.USER
+        ae.disable(req.scanner_id, reason=reason)
     return {"success": True, "config": ae.get_all_configs().get(req.scanner_id)}
+
+@router.get("/auto/orphans")
+async def get_orphans():
+    """Return unresolved orphan positions found at startup."""
+    from order.auto_executor import AutoExecutor
+    ae = AutoExecutor.get()
+    return {"orphans": ae._orphan_positions}
+
+@router.post("/auto/orphans/clear")
+async def clear_orphan(ticket: int):
+    """Clear an orphan position from the notification list, keep dedup hash."""
+    from order.auto_executor import AutoExecutor
+    ae = AutoExecutor.get()
+    ae._orphan_positions = [p for p in ae._orphan_positions if p["ticket"] != ticket]
+    return {"success": True}
 
 
 @router.get("/auto/status")

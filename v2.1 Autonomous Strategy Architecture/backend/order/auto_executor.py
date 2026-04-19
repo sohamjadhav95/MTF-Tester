@@ -39,6 +39,15 @@ STALENESS_SECONDS = 30
 MAX_CONSECUTIVE_FAILURES = 3
 
 
+from enum import Enum
+
+class DisableReason(str, Enum):
+    USER = "user"                     # toggled off by user
+    FAILURES = "failures"             # N consecutive failures
+    RISK_BREACH = "risk_breach"       # risk guard tripped
+    SCANNER_STOPPED = "scanner_stopped"
+    KILL_SWITCH = "kill_switch"       # .env AUTO_EXEC_KILL_SWITCH set
+
 @dataclass
 class AutoConfig:
     """Per-scanner auto-execution configuration."""
@@ -48,7 +57,9 @@ class AutoConfig:
     override_tp: Optional[float] = None       # if set, ignore signal.tp
     fail_count: int = 0                       # consecutive failures, reset on success
     max_open_positions: int = 1               # default: 1 position per scanner
-    auto_disabled_reason: Optional[str] = None
+    auto_disabled_reason: Optional[DisableReason] = None
+    auto_disabled_at: Optional[str] = None   # ISO timestamp, for UI sorting/display
+    auto_disabled_detail: Optional[str] = None   # e.g. "consecutive failures=3"
 
 
 class AutoExecutor:
@@ -60,8 +71,14 @@ class AutoExecutor:
         self._risk_guard = risk_guard
         self._configs: Dict[str, AutoConfig] = {}     # scanner_id → config
         self._processed_signal_ids: Set[str] = set()  # dedup
-        self._processing_lock = asyncio.Lock()        # serialize order placement
+        self._scanner_locks: Dict[str, asyncio.Lock] = {}   # scanner_id → Lock
         self._max_processed = 5000                    # cap memory
+        self._orphan_positions: list = []             # NEW: for reconciliation
+
+    def _get_lock(self, scanner_id: str) -> asyncio.Lock:
+        if scanner_id not in self._scanner_locks:
+            self._scanner_locks[scanner_id] = asyncio.Lock()
+        return self._scanner_locks[scanner_id]
 
     @classmethod
     def get(cls, risk_guard: Optional[RiskGuard] = None) -> "AutoExecutor":
@@ -76,7 +93,7 @@ class AutoExecutor:
     def attach_to_bus(self):
         """Call once on app startup after SignalBus is created."""
         bus = SignalBus.get()
-        bus.subscribe_global(self._on_bus_message)
+        bus.subscribe_service(self._on_bus_message)
         log.info("AutoExecutor attached to SignalBus")
 
     # ── Config management ────────────────────────────────────────
@@ -91,17 +108,24 @@ class AutoExecutor:
         cfg.override_tp = override_tp
         cfg.fail_count = 0
         cfg.auto_disabled_reason = None
+        cfg.auto_disabled_at = None
+        cfg.auto_disabled_detail = None
         self._configs[scanner_id] = cfg
         log.info(f"Auto-trade ENABLED | scanner={scanner_id} | volume={volume}")
 
-    def disable(self, scanner_id: str):
+    def disable(self, scanner_id: str, reason: DisableReason = DisableReason.USER, detail: str = ""):
         if scanner_id in self._configs:
-            self._configs[scanner_id].enabled = False
-            log.info(f"Auto-trade DISABLED | scanner={scanner_id}")
+            cfg = self._configs[scanner_id]
+            cfg.enabled = False
+            cfg.auto_disabled_reason = reason
+            cfg.auto_disabled_at = datetime.now(timezone.utc).isoformat() + "Z"
+            cfg.auto_disabled_detail = detail
+            log.info(f"Auto-trade DISABLED | scanner={scanner_id} | reason={reason.value} | {detail}")
 
     def remove(self, scanner_id: str):
         """Called when a scanner is stopped."""
         self._configs.pop(scanner_id, None)
+        self._scanner_locks.pop(scanner_id, None)
 
     def get_config(self, scanner_id: str) -> Optional[AutoConfig]:
         return self._configs.get(scanner_id)
@@ -110,7 +134,10 @@ class AutoExecutor:
         return {
             sid: {"enabled": c.enabled, "volume": c.volume,
                   "override_sl": c.override_sl, "override_tp": c.override_tp,
-                  "fail_count": c.fail_count, "auto_disabled_reason": c.auto_disabled_reason}
+                  "fail_count": c.fail_count,
+                  "auto_disabled_reason": c.auto_disabled_reason.value if c.auto_disabled_reason else None,
+                  "auto_disabled_at": c.auto_disabled_at,
+                  "auto_disabled_detail": c.auto_disabled_detail}
             for sid, c in self._configs.items()
         }
 
@@ -171,8 +198,13 @@ class AutoExecutor:
             return
 
         # Passed all gates — attempt the trade under a lock so we serialize
-        async with self._processing_lock:
-            # Re-check dedup inside the lock (defensive against concurrent calls)
+        async with self._get_lock(scanner_id):
+            # Re-check freshness inside lock
+            if bar_time_str and not self._is_fresh(bar_time_str):
+                log.warning(f"Stale by the time lock acquired | scanner={scanner_id} id={sig_id}")
+                self._processed_signal_ids.add(sig_id)
+                return
+
             if sig_id in self._processed_signal_ids:
                 return
             self._processed_signal_ids.add(sig_id)
@@ -249,6 +281,12 @@ class AutoExecutor:
             await self._broadcast_result(sig, success=False, error=str(e))
             self._maybe_auto_disable(scanner_id, cfg)
             return
+        except RuntimeError as e:
+            # CRITICAL: broker state unknown. Disable this scanner immediately.
+            log.critical(f"Auto-exec HALTED for {scanner_id}: {e}")
+            self.disable(scanner_id, reason=DisableReason.FAILURES, detail=f"send crash: {e}")
+            await self._broadcast_result(sig, success=False, error=f"CRITICAL: {e}")
+            return
         except Exception as e:
             # Unexpected failure — log but don't crash the subscriber
             cfg.fail_count += 1
@@ -279,17 +317,22 @@ class AutoExecutor:
             if bar_time.tzinfo is None:
                 bar_time = bar_time.replace(tzinfo=timezone.utc)
             age = (datetime.now(timezone.utc) - bar_time).total_seconds()
-            return -5 <= age <= STALENESS_SECONDS
-        except Exception:
+            if age < -5 or age > STALENESS_SECONDS:
+                log.warning(f"Freshness gate failed | age={age:.1f}s | bar_time={bar_time_str}")
+                return False
+            if age < -1:
+                log.info(f"Clock skew detected | signal {age:.1f}s in the future (within tolerance)")
+            return True
+        except Exception as e:
+            log.error(f"Could not parse bar_time={bar_time_str!r}: {e}")
             return False
 
     def _maybe_auto_disable(self, scanner_id: str, cfg: AutoConfig):
         if cfg.fail_count >= MAX_CONSECUTIVE_FAILURES:
-            cfg.enabled = False
-            cfg.auto_disabled_reason = f"Disabled after {cfg.fail_count} failures"
-            log.warning(
-                f"Auto-trade AUTO-DISABLED | scanner={scanner_id} | "
-                f"consecutive failures={cfg.fail_count}"
+            self.disable(
+                scanner_id,
+                reason=DisableReason.FAILURES,
+                detail=f"consecutive failures={cfg.fail_count}",
             )
 
     def _trim_processed(self):

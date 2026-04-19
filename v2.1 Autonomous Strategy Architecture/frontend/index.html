@@ -240,8 +240,9 @@
 
                         <!-- Data Source Info -->
                         <div class="form-group">
-                            <div class="form-hint" style="color: var(--accent); font-size: 11px;">
-                                ⚡ Engine feeds M1 data — strategy handles all timeframe logic internally.
+                            <div class="form-hint" style="color: var(--accent); font-size: 11px; line-height: 1.5;">
+                                ⚡ Engine feeds M1 data — strategy handles all timeframe logic internally.<br>
+                                ⚠️ <strong>Note:</strong> To ensure live/backtest parity, the engine pre-warms indicators. The first 1440 bars (1 day) will silently absorb data without emitting signals.
                             </div>
                         </div>
 

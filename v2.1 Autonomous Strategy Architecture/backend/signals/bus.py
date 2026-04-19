@@ -34,6 +34,7 @@ class SignalBus:
         self._signals: List[Dict] = []  # all signals (capped at 500 FIFO)
         self._chart_subscribers: Dict[str, List[Callable]] = {}  # "SYMBOL_TF" → [callback, ...]
         self._global_subscribers: List[Callable] = []  # all signals → [callback, ...]
+        self._service_subscribers: List[Callable] = []  # permanent: NEVER auto-removed
         self._max_signals = 500
 
     @classmethod
@@ -44,33 +45,55 @@ class SignalBus:
             log.info("SignalBus initialized")
         return cls._instance
 
+    # ── Services ───────────────────────────────────────────────────
+
+    def subscribe_service(self, callback: Callable):
+        """
+        Register a long-lived in-process service (e.g. AutoExecutor).
+        Service subscribers are NEVER auto-removed by the bus, regardless of
+        what exception their callback raises. Exceptions are logged loudly
+        but the subscription stays active.
+        """
+        self._service_subscribers.append(callback)
+        log.info(f"Service subscriber added (total={len(self._service_subscribers)})")
+    
+    def unsubscribe_service(self, callback: Callable):
+        try:
+            self._service_subscribers.remove(callback)
+        except ValueError:
+            pass
+
     # ── Publishing ─────────────────────────────────────────────────
 
     async def publish(self, signal: dict):
         """
         Called by strategy scanner when a signal fires.
         Broadcasts to:
-         1. Chart WS matching signal's symbol+timeframe
-         2. All global signal WS subscribers (sidebar signal list)
+         1. Services (AutoExecutor)
+         2. Chart WS matching signal's symbol+timeframe
+         3. All global signal WS subscribers (sidebar signal list)
         """
         self._signals.append(signal)
         if len(self._signals) > self._max_signals:
             self._signals = self._signals[-self._max_signals :]
+
+        payload = {"type": "signal", "data": signal}
+        
+        # Services first — never removed on error
+        await self._broadcast_to_services(payload)
 
         # 1. Broadcast to ALL chart WS subscribers watching this symbol
         #    (cross-timeframe: M5 signal → H1 chart, H4 chart, etc.)
         symbol = signal.get('symbol', '')
         for key, subscribers in list(self._chart_subscribers.items()):
             if key.startswith(f"{symbol}_"):
-                await self._broadcast_to(
-                    subscribers,
-                    {"type": "signal", "data": signal},
+                await self._broadcast_to_transient(
+                    subscribers, payload
                 )
 
         # 2. Broadcast to ALL global signal subscribers
-        await self._broadcast_to(
-            self._global_subscribers,
-            {"type": "signal", "data": signal},
+        await self._broadcast_to_transient(
+            self._global_subscribers, payload
         )
 
         log.debug(f"Signal published | {signal.get('direction')} {signal.get('symbol')} [{signal.get('timeframe')}]")
@@ -81,14 +104,16 @@ class SignalBus:
         Goes to global subscribers only if global_only=True.
         """
         payload = {"type": "trade_update", "data": update}
+        await self._broadcast_to_services(payload)
+        
         if not global_only:
             # Broadcast to ALL charts watching this symbol (cross-timeframe)
             symbol = update.get('symbol', '')
             for key, subscribers in list(self._chart_subscribers.items()):
                 if key.startswith(f"{symbol}_"):
-                    await self._broadcast_to(subscribers, payload)
+                    await self._broadcast_to_transient(subscribers, payload)
         
-        await self._broadcast_to(self._global_subscribers, payload)
+        await self._broadcast_to_transient(self._global_subscribers, payload)
 
     # ── Subscriptions ──────────────────────────────────────────────
 
@@ -145,25 +170,45 @@ class SignalBus:
 
     # ── Internal ───────────────────────────────────────────────────
 
-    async def _broadcast_to(self, subscribers: List[Callable], payload: dict):
-        """Send payload to a list of async callback subscribers."""
-        dead = []
-        for callback in subscribers:
+    async def _broadcast_to_services(self, payload: dict):
+        """Service callbacks are NEVER removed — only logged on error."""
+        for cb in self._service_subscribers:
             try:
-                if asyncio.iscoroutinefunction(callback):
-                    await callback(payload)
+                if asyncio.iscoroutinefunction(cb):
+                    await cb(payload)
                 else:
-                    callback(payload)
-            except (ConnectionResetError, RuntimeError) as e:
-                if "closed" in str(e).lower() or "disconnect" in str(e).lower():
-                    dead.append(callback)
-                else:
-                    log.error(f"Subscriber callback error (kept): {e}")
+                    cb(payload)
             except Exception as e:
-                log.error(f"Subscriber callback error (kept): {e}", exc_info=True)
-        # Remove dead callbacks
+                log.error(
+                    f"Service subscriber raised (KEPT, will be called again): "
+                    f"{type(e).__name__}: {e}",
+                    exc_info=True,
+                )
+
+    async def _broadcast_to_transient(self, subs: List[Callable], payload: dict):
+        """Transient subscribers (WebSockets) — removed only on explicit disconnect."""
+        from fastapi.websockets import WebSocketDisconnect
+        dead = []
+        for cb in subs:
+            try:
+                if asyncio.iscoroutinefunction(cb):
+                    await cb(payload)
+                else:
+                    cb(payload)
+            except WebSocketDisconnect:
+                dead.append(cb)
+            except (ConnectionResetError, ConnectionAbortedError):
+                dead.append(cb)
+            except RuntimeError as e:
+                # Starlette raises RuntimeError("Cannot call send after close")
+                if "after close" in str(e).lower() or "already disconnected" in str(e).lower():
+                    dead.append(cb)
+                else:
+                    log.error(f"Transient subscriber raised (KEPT): {e}", exc_info=True)
+            except Exception as e:
+                log.error(f"Transient subscriber raised (KEPT): {e}", exc_info=True)
         for cb in dead:
             try:
-                subscribers.remove(cb)
+                subs.remove(cb)
             except ValueError:
                 pass

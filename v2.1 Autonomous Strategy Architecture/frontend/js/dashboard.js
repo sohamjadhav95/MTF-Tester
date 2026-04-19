@@ -43,8 +43,27 @@ document.addEventListener('DOMContentLoaded', () => {
     syncActiveScanners().then(() => {
         // Sync auto-trade state
         syncAutoTradeState();
+        checkOrphans();
     });
 });
+
+async function checkOrphans() {
+    try {
+        const d = await api('/api/order/auto/orphans');
+        const list = d.orphans || [];
+        if (list.length > 0) {
+            const ok = await showConfirm(
+                '⚠️ Orphan Positions Detected',
+                `${list.length} orphan auto-trade positions found from a previous session crash. The engine has synced deduplication hashes to prevent double-entries, but you must MANUALLY close or manage these open positions. Check your MT5 terminal.`
+            );
+            if (ok) {
+                for (const p of list) {
+                    await api(`/api/order/auto/orphans/clear?ticket=${p.ticket}`, 'POST').catch(()=>{});
+                }
+            }
+        }
+    } catch(e) {}
+}
 
 
 // ═══ NAVIGATION ═══════════════════════════════════════════════
@@ -636,9 +655,17 @@ function refreshActiveStrategies() {
     container.innerHTML = ids.map(sid => {
         const sc = _activeScanners[sid];
         const autoOn = sc.autoTrade || false;
+        
+        const disableBadge = !autoOn && sc.autoDisabledReason && sc.autoDisabledReason !== 'user'
+            ? `<div class="badge badge-error" style="font-size:9px; cursor:help; margin-left:8px;" title="${sc.autoDisabledDetail || ''}">Halted: ${sc.autoDisabledReason}</div>`
+            : '';
+
         return `<div class="active-strat-row">
             <div class="active-strat-info">
-                <div class="active-strat-name">${sc.name}</div>
+                <div class="active-strat-name" style="display:flex; align-items:center;">
+                    ${sc.name}
+                    ${disableBadge}
+                </div>
                 <div class="active-strat-meta">${sc.symbol} · ${sc.strategyName} · ${sc.timeframe || 'M1'}</div>
             </div>
             <div class="active-strat-actions">
@@ -722,6 +749,8 @@ async function syncActiveScanners() {
                     name: sc.name,
                     autoTrade: sc.auto ? sc.auto.enabled : false,
                     autoVolume: sc.auto ? sc.auto.volume : 0.1,
+                    autoDisabledReason: sc.auto ? sc.auto.auto_disabled_reason : null,
+                    autoDisabledDetail: sc.auto ? sc.auto.auto_disabled_detail : null,
                     symbol: sc.symbol,
                     timeframe: sc.timeframe,
                     strategyName: sc.strategy_name,
@@ -745,6 +774,8 @@ async function syncAutoTradeState() {
             if (_activeScanners[sid]) {
                 _activeScanners[sid].autoTrade = cfg.enabled;
                 _activeScanners[sid].autoVolume = cfg.volume;
+                _activeScanners[sid].autoDisabledReason = cfg.auto_disabled_reason;
+                _activeScanners[sid].autoDisabledDetail = cfg.auto_disabled_detail;
             }
         }
         refreshAutoTradeList();
@@ -808,6 +839,13 @@ function handleGlobalSignalMsg(msg) {
     if (msg.type === 'trade_update') {
         const upd = msg.data;
         const status = upd.status;
+        
+        if (status === 'SCANNER_ERROR') {
+            showToast(`💥 Scanner Error (${upd.scanner_id}): ${upd.error}`, 'error', 10000);
+            setTimeout(syncActiveScanners, 1000);
+            setTimeout(syncAutoTradeState, 1500);
+            return;
+        }
 
         // Existing SL/TP handling + new auto statuses
         if (status === 'AUTO_PLACED') {

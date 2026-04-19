@@ -38,7 +38,6 @@ router = APIRouter()
 _active_scanners: dict[str, MTFLiveEngine] = {}
 # Scanner metadata for listing (name, config, etc.)
 _scanner_meta: dict[str, dict] = {}
-_scanner_counter = 0
 
 
 @router.get("/strategies")
@@ -165,15 +164,34 @@ async def upload_strategy(file: UploadFile = File(...), request: Request = None)
     try:
         instance = found_cls(settings={})
         instance.on_start(dummy)
-        result = instance.on_bar(len(dummy) - 1, dummy)
-        if isinstance(result, tuple):
-            if not result or str(result[0]).upper() not in ("BUY", "SELL", "HOLD"):
-                raise ValueError(f"on_bar tuple[0] must be BUY/SELL/HOLD, got {result[0]!r}")
-        elif isinstance(result, str):
-            if result.upper() not in ("BUY", "SELL", "HOLD"):
-                raise ValueError(f"on_bar must return BUY/SELL/HOLD, got {result!r}")
-        elif result is not None:
-            raise ValueError(f"on_bar must return str or tuple, got {type(result).__name__}")
+        
+        def engine_parse(raw):
+            from strategies._template import Signal
+            if raw is None: return
+            if isinstance(raw, Signal): return
+            if isinstance(raw, str):
+                if raw.upper().strip() not in ("BUY", "SELL", "HOLD"): raise ValueError("String must be BUY/SELL/HOLD")
+                return
+            if isinstance(raw, tuple):
+                if len(raw) == 1: return engine_parse(raw[0])
+                if len(raw) == 3:
+                    d = str(raw[0]).upper().strip()
+                    if d not in ("BUY", "SELL", "HOLD"): raise ValueError("Tuple must start with BUY/SELL/HOLD")
+                    if raw[1] is not None: float(raw[1])
+                    if raw[2] is not None: float(raw[2])
+                    return
+                raise ValueError(f"Tuple length {len(raw)} must be 1 or 3")
+            raise ValueError(f"Unsupported type {type(raw).__name__}")
+
+        for i in range(len(dummy)):
+            try:
+                result = instance.on_bar(i, dummy)
+            except Exception as e:
+                raise ValueError(f"on_bar raised on bar {i}: {type(e).__name__}: {e}")
+            try:
+                engine_parse(result)
+            except Exception as e:
+                raise ValueError(f"on_bar returned unparseable value on bar {i}: {e}")
     except Exception as e:
         tmp_path.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail=f"Strategy smoke-test failed: {e}")
@@ -312,17 +330,32 @@ async def run_backtest(req: BacktestRequest, request: Request):
             raise HTTPException(status_code=400, detail="MT5 not connected")
         default_point = 0.00001; default_digits = 5; default_contract_size = 100000.0
 
-    # Fetch M1 OHLCV for the requested date range (paginated for Binance internally)
+    # Fetch M1 OHLCV for the requested date range + warmup buffer
+    from datetime import timedelta
+    fetch_date_from = date_from
+    if req.warmup_bars > 0:
+        buffer_days = (req.warmup_bars / 1440.0) * 1.5 + 4
+        fetch_date_from = date_from - timedelta(days=buffer_days)
+
     try:
         data = await asyncio.to_thread(
             provider.fetch_ohlcv,
             symbol=req.symbol,
             timeframe="M1",
-            date_from=date_from,
+            date_from=fetch_date_from,
             date_to=date_to,
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Data fetch failed: {e}")
+
+    # Exact align warmup bars
+    live_idx = data.index[data["time"] >= date_from]
+    actual_warmup_bars = 0
+    if len(live_idx) > 0:
+        start_idx = live_idx[0]
+        keep_idx = max(0, start_idx - req.warmup_bars)
+        data = data.iloc[keep_idx:].reset_index(drop=True)
+        actual_warmup_bars = start_idx - keep_idx
 
     if data.empty:
         raise HTTPException(
@@ -345,6 +378,7 @@ async def run_backtest(req: BacktestRequest, request: Request):
         fixed_spread_points=req.fixed_spread_points,
         use_spread_from_data=req.use_spread_from_data,
         point=point, digits=digits, contract_size=contract_size,
+        warmup_bars=actual_warmup_bars,
     )
 
     registry = auto_discover_strategies()
@@ -397,9 +431,8 @@ async def start_scanner(req: MTFStartRequest, request: Request):
     else:
         raise HTTPException(status_code=400, detail=f"Unknown provider: {req.provider}")
 
-    global _scanner_counter
-    _scanner_counter += 1
-    scanner_id = f"scan-{_scanner_counter}"
+    import uuid
+    scanner_id = f"scan-{uuid.uuid4().hex[:8]}"
 
     engine = MTFLiveEngine(
         scanner_id=scanner_id,
@@ -460,7 +493,7 @@ async def stop_scanner(request: Request):
         _active_scanners[scanner_id].stop()
         del _active_scanners[scanner_id]
         _scanner_meta.pop(scanner_id, None)
-        # Bug 9: counter is NOT reset — IDs must be monotonically increasing within a session
+        _scanner_meta.pop(scanner_id, None)
         log.info(f"Scanner stopped | id={scanner_id}")
         return {"success": True}
 
