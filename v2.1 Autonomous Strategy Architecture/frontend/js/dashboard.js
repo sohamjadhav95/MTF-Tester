@@ -39,9 +39,13 @@ document.addEventListener('DOMContentLoaded', () => {
     initWatchlistPanel();
     connectGlobalSignalWS();
 
-    // Sync auto-trade state
-    syncAutoTradeState();
+    // Sync active scanners from backend to restore UI state on refresh
+    syncActiveScanners().then(() => {
+        // Sync auto-trade state
+        syncAutoTradeState();
+    });
 });
+
 
 // ═══ NAVIGATION ═══════════════════════════════════════════════
 function initNavigation() {
@@ -705,6 +709,34 @@ function refreshActiveStrategies() {
             }
         });
     });
+}
+
+// Sync active scanners from backend to restore UI state on refresh
+async function syncActiveScanners() {
+    try {
+        const data = await api('/api/chart/scanners');
+        const scanners = data.scanners || [];
+        for (const sc of scanners) {
+            const sid = sc.scanner_id;
+            if (!_activeScanners[sid]) {
+                _activeScanners[sid] = {
+                    config: {}, // frontend missing full config dump but fine for UI stopping
+                    name: sc.name,
+                    autoTrade: sc.auto ? sc.auto.enabled : false,
+                    autoVolume: sc.auto ? sc.auto.volume : 0.1,
+                    symbol: sc.symbol,
+                    timeframe: sc.timeframe,
+                    strategyName: sc.strategy_name,
+                    signals: [],
+                };
+                createScannerNavAndPanel(sid, _activeScanners[sid]);
+            }
+        }
+        refreshActiveStrategies();
+        refreshAutoTradeList();
+    } catch(err) {
+        console.error('Failed to sync active scanners:', err);
+    }
 }
 
 async function syncAutoTradeState() {
