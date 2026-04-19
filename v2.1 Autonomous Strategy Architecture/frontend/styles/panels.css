@@ -646,3 +646,42 @@ details[open] .strat-guide-title::before { content: "▼ "; }
     font-style: italic;
 }
 
+/* ═══ RIGHT PANE SECTIONS ══════════════════════════════════ */
+.rp-section {
+    display: flex; flex-direction: column; flex-shrink: 0;
+}
+.rp-section-header {
+    font-size: 10px; font-weight: 700; color: var(--text-3); text-transform: uppercase;
+    letter-spacing: 0.08em; padding: 12px 16px 8px; cursor: pointer;
+    display: flex; justify-content: space-between; align-items: center;
+    transition: background var(--t-fast);
+}
+.rp-section-header:hover { background: var(--bg-hover-subtle); color: var(--text-2); }
+.rp-section-summary { display: none; font-family: var(--ff-mono); font-weight: 400; font-size: 11px; text-transform: none; letter-spacing: normal; color: var(--text-1); }
+
+.rp-section.collapsed { flex: 0 0 auto !important; }
+.rp-section.collapsed .rp-section-body,
+.rp-section.collapsed .rp-section-footer { display: none !important; }
+.rp-section.collapsed .rp-section-summary { display: inline-block; }
+
+.rp-section-body { padding: 0 16px 16px; }
+
+.rp-stat-row {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 12px; margin-bottom: 6px;
+}
+.rp-stat-row span:first-child { color: var(--text-2); }
+.rp-stat-row span:last-child { font-weight: 600; color: var(--text-1); }
+
+/* Activity feed rows */
+.rp-activity-row {
+    display: grid; grid-template-columns: 50px auto 1fr; gap: 8px;
+    padding: 6px 16px; border-bottom: 1px solid var(--border-1);
+    font-size: 11px; font-family: var(--ff-mono); cursor: pointer;
+}
+.rp-activity-row:hover { background: var(--bg-hover-subtle); }
+.rp-activity-time { color: var(--text-3); }
+.rp-activity-msg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.rp-activity-msg strong { color: var(--text-1); font-weight: 700; }
+.rp-activity-status { justify-self: end; display: flex; align-items: center; }
+

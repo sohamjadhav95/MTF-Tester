@@ -16,29 +16,29 @@
     <!-- ═══ TOP BAR ═══════════════════════════════════════════ -->
     <header class="topbar">
         <div class="topbar-brand">
-            <span class="topbar-brand-text">MTF Tester</span>
-            <span class="topbar-version">v2.2</span>
+            <span class="topbar-brand-text">MTF</span>
         </div>
 
-        <!-- Market Section Tabs -->
-        <div class="market-tabs" id="market-tabs">
-            <button class="market-tab active" data-market="forex">Forex (MT5)</button>
-            <button class="market-tab disabled" data-market="crypto" title="Coming soon">Crypto</button>
-            <button class="market-tab disabled" data-market="local" title="Coming soon">Local</button>
+        <div class="topbar-center" style="display:flex; align-items:center; gap:var(--sp-4);">
+            <span class="topbar-time mono" id="server-time" style="color:var(--text-2);">--:--:-- UTC</span>
+            <span class="topbar-latency" style="color:var(--text-3); display:flex; align-items:center; gap:4px;">
+                <span class="led led-off" id="latency-dot"></span> <span id="latency-val" class="mono">--</span>ms
+            </span>
+            <span class="topbar-equity" style="display:flex; align-items:center; gap:var(--sp-2);">
+                <span class="text-3" style="font-size:10px; letter-spacing:0.08em;">EQUITY</span>
+                <span id="header-equity" class="mono" style="font-size:16px; font-weight:600;">$0.00</span>
+                <span id="header-pnl" class="mono text-2" style="font-size:12px;">$0.00</span>
+            </span>
         </div>
 
         <div class="topbar-spacer"></div>
 
-        <!-- Connection Status -->
-        <div class="conn-pill" id="conn-pill">
-            <span class="dot dot-off" id="conn-dot"></span>
-            <span id="conn-text">Disconnected</span>
-        </div>
-
-        <!-- User -->
-        <div class="user-pill" id="user-pill">
-            <div class="user-avatar" id="user-avatar">U</div>
-            <span class="user-name" id="user-name">User</span>
+        <div class="topbar-right" style="display:flex; align-items:center; gap:var(--sp-3);">
+            <div class="risk-chip text-3" id="header-risk-chip" style="font-size:10px; letter-spacing:0.08em; font-weight:600; padding:2px 6px; border-radius:3px; background:var(--bg-tertiary);">RISK: DISARMED</div>
+            <button class="kill-switch" id="header-kill-btn" style="display:flex; align-items:center; gap:6px; color:var(--short); font-size:11px; font-weight:700; letter-spacing:0.05em;">
+                <span id="header-kill-text">● KILL-SW OFF</span>
+            </button>
+            <button class="cmdk-trigger" id="cmdk-trigger" style="font-family:var(--ff-mono); font-size:10px; background:var(--bg-tertiary); padding:2px 6px; border-radius:3px; border:1px solid var(--border-1); color:var(--text-2);">⌘K</button>
         </div>
     </header>
 
@@ -48,43 +48,35 @@
         <!-- ═══ LEFT PANE ═════════════════════════════════════ -->
         <nav class="left-pane">
             <div class="left-nav">
+                <div class="section-label" style="padding: 4px 12px 6px; font-size: 10px; color: var(--text-3); letter-spacing: 0.08em; text-transform: uppercase;">Navigate</div>
                 <!-- Core Navigation -->
                 <div class="nav-item active" data-panel="dashboard" id="nav-dashboard">
-                    <span class="nav-icon">📊</span>
+                    <i data-lucide="layout-dashboard" class="nav-ico"></i>
                     <span class="nav-label">Dashboard</span>
                 </div>
                 <div class="nav-item" data-panel="charts" id="nav-charts">
-                    <span class="nav-icon">📈</span>
+                    <i data-lucide="line-chart" class="nav-ico"></i>
                     <span class="nav-label">Charts</span>
                 </div>
                 <div class="nav-item" data-panel="mtf-config" id="nav-mtf-config">
-                    <span class="nav-icon">⚡</span>
-                    <span class="nav-label">MTF Strategy</span>
+                    <i data-lucide="zap" class="nav-ico"></i>
+                    <span class="nav-label">Strategies</span>
                 </div>
-
-                <!-- Deploy Trades -->
-                <div class="nav-divider"></div>
                 <div class="nav-item" data-panel="deploy-trades" id="nav-deploy-trades">
-                    <span class="nav-icon">🛡️</span>
-                    <span class="nav-label">Deploy Trades</span>
+                    <i data-lucide="shield-check" class="nav-ico"></i>
+                    <span class="nav-label">Trading</span>
                 </div>
-
-                <!-- Bottom nav -->
-                <div class="nav-divider"></div>
                 <div class="nav-item" data-panel="create-strategy" id="nav-create-strategy">
-                    <span class="nav-icon">🧪</span>
-                    <span class="nav-label">Create Strategy</span>
+                    <i data-lucide="flask-conical" class="nav-ico"></i>
+                    <span class="nav-label">Create</span>
                 </div>
 
-                <!-- Dynamic Scanner Panels (added at runtime) -->
-                <div id="scanner-nav-section" style="display:none;">
-                    <div class="nav-divider"></div>
-                    <div class="section-label" style="padding: 4px 12px 2px; font-size: 9px;">Active Scanners</div>
+                <!-- Live Scanners Section (Populated later) -->
+                <div id="scanner-nav-section" style="margin-top: 16px;">
+                    <div class="section-label" style="padding: 4px 12px 6px; font-size: 10px; color: var(--text-3); letter-spacing: 0.08em; text-transform: uppercase;">Live Scanners</div>
+                    <div class="left-content" id="left-signals" style="display:flex; flex-direction:column; padding:0 8px;"></div>
                 </div>
             </div>
-
-            <!-- Left pane bottom spacer -->
-            <div class="left-content" id="left-signals" style="flex:1;"></div>
         </nav>
 
         <!-- ═══ MAIN AREA ═════════════════════════════════════ -->
@@ -136,45 +128,39 @@
                         </div>
                     </div>
 
-                    <!-- Account Overview -->
-                    <div class="dash-section">
-                        <div class="dash-section-title">Account Overview</div>
-                        <div class="stats-row">
-                            <div class="stat-box">
-                                <div class="stat-box-label">Balance</div>
-                                <div class="stat-box-value" id="acc-balance">—</div>
+                    <!-- Hub Stats Row -->
+                    <div class="dash-section" style="margin-top:var(--sp-4);">
+                        <div class="dash-section-title">System Telemetry</div>
+                        <div class="stats-row" style="grid-template-columns: repeat(3, 1fr);">
+                            <div class="stat-box" style="background:var(--bg-tertiary); border:1px solid var(--border-2);">
+                                <div class="stat-box-label" style="display:flex; justify-content:space-between;">Active Scanners <i data-lucide="activity" style="width:14px; height:14px;"></i></div>
+                                <div class="stat-box-value" id="dash-active-scanners-count">0</div>
                             </div>
-                            <div class="stat-box">
-                                <div class="stat-box-label">Equity</div>
-                                <div class="stat-box-value" id="acc-equity">—</div>
+                            <div class="stat-box" style="background:var(--bg-tertiary); border:1px solid var(--border-2);">
+                                <div class="stat-box-label" style="display:flex; justify-content:space-between;">Auto-Trade Engines <i data-lucide="zap" style="width:14px; height:14px; color:var(--warning);"></i></div>
+                                <div class="stat-box-value" id="dash-auto-engines-count">0</div>
                             </div>
-                            <div class="stat-box">
-                                <div class="stat-box-label">Free Margin</div>
-                                <div class="stat-box-value" id="acc-margin">—</div>
-                            </div>
-                            <div class="stat-box">
-                                <div class="stat-box-label">Floating P&L</div>
-                                <div class="stat-box-value" id="acc-pnl">—</div>
-                            </div>
-                            <div class="stat-box">
-                                <div class="stat-box-label">Open Positions</div>
-                                <div class="stat-box-value" id="acc-positions">—</div>
-                            </div>
-                            <div class="stat-box">
-                                <div class="stat-box-label">Server</div>
-                                <div class="stat-box-value" id="acc-server" style="font-family: var(--ff-sans); font-size: var(--fs-sm);">—</div>
+                            <div class="stat-box" style="background:var(--bg-tertiary); border:1px solid var(--border-2);">
+                                <div class="stat-box-label" style="display:flex; justify-content:space-between;">Total Signals Today <i data-lucide="bar-chart" style="width:14px; height:14px; color:var(--accent);"></i></div>
+                                <div class="stat-box-value" id="dash-strats-count">0</div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Open Positions -->
-                    <div class="dash-section">
-                        <div class="dash-section-title">Open Positions</div>
-                        <div id="dash-positions">
-                            <div class="empty-state" style="padding: 24px;">
-                                <div class="empty-state-desc">Connect MT5 to view open positions</div>
-                            </div>
-                        </div>
+                    <!-- Active Scanners View -->
+                    <div class="dash-section" style="flex:1; display:flex; flex-direction:column; min-height:0; margin-bottom:0;">
+                         <div class="dash-section-title" style="display:flex; justify-content:space-between; align-items:center;">
+                            Active Instances
+                            <button class="btn btn-ghost btn-xs" onclick="switchPanel('mtf-config')">
+                                <i data-lucide="plus" style="width:12px;height:12px;"></i> Launch New
+                            </button>
+                         </div>
+                         <div id="active-strategies-list" style="flex:1; overflow-y:auto; padding-right:var(--sp-2);">
+                             <div class="empty-state" style="padding: 24px; border:1px dashed var(--border-2); border-radius:var(--r-md);">
+                                 <i data-lucide="cpu" style="width:24px; height:24px; opacity:0.3; margin-bottom:8px;"></i>
+                                 <div class="empty-state-desc">No active scanners. Launch a strategy to deploy engines.</div>
+                             </div>
+                         </div>
                     </div>
                 </div>
             </div>
@@ -209,7 +195,7 @@
                     <!-- Chart Grid -->
                     <div class="watch-chart-grid" id="watch-chart-grid">
                         <div class="empty-state" style="padding: 60px 24px;">
-                            <div style="font-size: 40px; opacity: 0.15;">📈</div>
+                            <div style="opacity: 0.3; margin-bottom:12px;"><i data-lucide="bar-chart-2" style="width:40px; height:40px; stroke-width:1.5;"></i></div>
                             <div class="empty-state-desc">Add a symbol to start watching live charts</div>
                         </div>
                     </div>
@@ -263,15 +249,6 @@
                         </div>
                     </form>
 
-                    <!-- Active Strategies Section -->
-                    <div class="dash-section" style="margin-top: var(--sp-6);" id="active-strategies-section">
-                        <div class="dash-section-title">Active Strategies</div>
-                        <div id="active-strategies-list">
-                            <div class="empty-state" style="padding: 24px;">
-                                <div class="empty-state-desc">No active scanners. Launch a strategy above.</div>
-                            </div>
-                        </div>
-                    </div>
                 </div>
             </div>
 
@@ -284,7 +261,7 @@
 
                     <!-- Info banner -->
                     <div class="info-banner">
-                        <span class="info-banner-icon">📋</span>
+                        <span class="info-banner-icon" style="color:var(--info);"><i data-lucide="info"></i></span>
                         <div>
                             <div class="info-banner-title">How to create a strategy</div>
                             <div class="info-banner-text">
@@ -296,7 +273,7 @@
 
                     <!-- Upload zone -->
                     <div class="upload-drop-zone" id="strat-drop-zone">
-                        <div class="upload-icon">📄</div>
+                        <div class="upload-icon" style="color:var(--text-3);"><i data-lucide="file-code-2" style="width:36px; height:36px; stroke-width:1.5"></i></div>
                         <div class="upload-text">Drop your <code>.py</code> strategy file here</div>
                         <div class="upload-sub">or</div>
                         <label class="btn btn-secondary" style="cursor:pointer; margin-top: 4px;">
@@ -494,7 +471,72 @@ class MyStrategy(BaseStrategy):
             <!-- ─── DYNAMIC SCANNER SIGNAL PANELS (injected at runtime) ─── -->
 
         </main>
+
+        <!-- ═══ RIGHT PANE ════════════════════════════════════ -->
+        <aside class="right-pane" id="right-pane">
+            
+            <!-- ACCOUNT SECTION -->
+            <div class="rp-section" id="rp-sec-account">
+                <div class="rp-section-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                    ACCOUNT <span class="rp-section-summary" id="rp-account-summary"></span>
+                </div>
+                <div class="rp-section-body">
+                    <div class="rp-stat-row"><span>Equity</span><span class="mono" id="rp-equity">$0.00</span></div>
+                    <div class="rp-stat-row"><span>Balance</span><span class="mono" id="rp-balance">$0.00</span></div>
+                    <div class="rp-stat-row"><span>Free margin</span><span class="mono" id="rp-margin">$0.00</span></div>
+                    <div class="rp-stat-row"><span>Floating</span><span class="mono" id="rp-floating">$0.00</span></div>
+                    <div class="rp-stat-row"><span>Positions</span><span class="mono" id="rp-pos-count">0 open</span></div>
+                    <div class="rp-sparkline-container" id="rp-sparkline-container" style="height: 40px; margin-top: 12px; border-bottom: 1px solid var(--border-1);">
+                        <!-- SVG sparkline inserted via JS -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- OPEN POSITIONS SECTION -->
+            <div class="rp-section" id="rp-sec-positions" style="flex:1; display:flex; flex-direction:column; min-height:0;">
+                <div class="rp-section-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                    OPEN POSITIONS (<span id="rp-pos-title-count">0</span>)
+                </div>
+                <div class="rp-section-body" style="padding:0; flex:1; overflow-y:auto; display:flex; flex-direction:column;" id="rp-positions-list">
+                    <div class="empty-state" style="padding: 24px;">
+                        <i data-lucide="inbox" class="empty-state-icon" style="width:24px; height:24px; opacity:0.3; margin-bottom:8px;"></i>
+                        <span class="empty-state-desc" style="font-size:11px;">No open positions</span>
+                    </div>
+                </div>
+                <div class="rp-section-footer" style="padding: 8px 12px; border-top: 1px solid var(--border-1);">
+                    <button class="btn btn-ghost btn-block btn-sm" id="rp-close-all-btn">Close All</button>
+                </div>
+            </div>
+
+            <!-- ACTIVITY FEED SECTION -->
+            <div class="rp-section" id="rp-sec-activity" style="flex:1; display:flex; flex-direction:column; min-height:0; border-top: 1px solid var(--border-1);">
+                <div class="rp-section-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                    ACTIVITY (last 20)
+                </div>
+                <div class="rp-section-body" style="padding:0; flex:1; overflow-y:auto; display:flex; flex-direction:column; font-family:var(--ff-mono); font-size:11px;" id="rp-activity-feed">
+                    <div class="empty-state" style="padding: 24px;">
+                        <span class="empty-state-desc" style="font-size:11px;">Waiting for activity...</span>
+                    </div>
+                </div>
+            </div>
+
+        </aside>
+
     </div>
+
+    <!-- ═══ FOOTER STATUS BAR ═════════════════════════════════ -->
+    <footer class="footer-bar">
+        <div class="footer-status-item" id="footer-conn" style="cursor: pointer;">
+            <span class="led led-off" id="footer-conn-led"></span> <span id="footer-conn-text">MT5: Disconnected</span>
+        </div>
+        <div class="footer-status-item" style="color:var(--text-2);">
+            <span id="footer-stats-text">Scanners 0 <span style="opacity:0.5;margin:0 6px;">|</span> Signals today 0 <span style="opacity:0.5;margin:0 6px;">|</span> Auto-trades 0</span>
+        </div>
+        <div class="footer-status-item">
+            <span class="footer-errors" id="footer-errors" style="cursor: pointer; margin-right: 12px; color:var(--text-2);">errors 0</span>
+            <span class="footer-version text-3">v2.3.0</span>
+        </div>
+    </footer>
 </div>
 
 <!-- ═══ CHART EXPAND MODAL ════════════════════════════════════ -->
@@ -524,11 +566,35 @@ class MyStrategy(BaseStrategy):
 <div class="toast-container" id="toast-container"></div>
 
 
-<!-- ═══ SCRIPTS ═══════════════════════════════════════════════ -->
-<script src="https://unpkg.com/lightweight-charts@4.2.2/dist/lightweight-charts.standalone.production.js"></script>
-<script src="/js/core.js"></script>
+<!-- ═══ COMMAND PALETTE ════════════════════════════════════ -->
+<div class="cmdk-overlay" id="cmdk-overlay">
+    <div class="cmdk-modal">
+        <div class="cmdk-header">
+            <i data-lucide="search" class="cmdk-icon"></i>
+            <input type="text" class="cmdk-input" id="cmdk-input" placeholder="Search commands, symbols, or actions... (Esc to close)" autocomplete="off">
+        </div>
+        <div class="cmdk-body">
+            <div class="cmdk-group-title">Suggestions</div>
+            <div class="cmdk-list" id="cmdk-list">
+                <!-- populated via js -->
+            </div>
+        </div>
+        <div class="cmdk-footer">
+            <div class="cmdk-keys">
+                <span class="cmd-key">↑</span> <span class="cmd-key">↓</span> to navigate
+                <span class="cmd-key" style="margin-left: 12px;">↵</span> to execute
+            </div>
+        </div>
+    </div>
+</div>
 
-<script src="/js/dashboard.js"></script>
+<!-- ═══ SCRIPTS ═══════════════════════════════════════════════ -->
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/fuse.js@6.6.2"></script>
+<script src="https://unpkg.com/lightweight-charts@4.2.2/dist/lightweight-charts.standalone.production.js"></script>
+<script src="/js/core.js?v=4"></script>
+
+<script src="/js/dashboard.js?v=4"></script>
 
 </body>
 </html>

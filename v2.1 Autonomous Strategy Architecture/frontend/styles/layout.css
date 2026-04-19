@@ -26,48 +26,21 @@
 }
 .topbar-version { font-size: var(--fs-2xs); color: var(--text-3); font-weight: 500; }
 
-/* ── Market Tabs ───────────────────────────────────────────── */
-.market-tabs {
-    display: flex; gap: 1px; background: var(--bg-input);
-    border-radius: var(--r-sm); padding: 2px;
-    border: 1px solid var(--border-1);
-}
-.market-tab {
-    padding: 5px 14px; border-radius: var(--r-xs);
-    font-size: var(--fs-xs); font-weight: 600; color: var(--text-3);
+/* ── Top Bar Elements ──────────────────────────────────────── */
+.topbar-time { font-weight: 500; }
+.topbar-latency { font-size: 11px; }
+.topbar-equity { background: var(--bg-input); padding: 4px 10px; border-radius: var(--r-sm); border: 1px solid var(--border-1); }
+
+.kill-switch { 
+    background: transparent; border: 1px solid var(--border-1); 
+    border-radius: var(--r-sm); padding: 4px 8px; 
     cursor: pointer; transition: all var(--t-fast);
-    white-space: nowrap; letter-spacing: 0.02em;
 }
-.market-tab:hover { color: var(--text-2); }
-.market-tab.active { background: var(--accent); color: #fff; }
-.market-tab.disabled { opacity: 0.35; cursor: not-allowed; }
+.kill-switch:hover { background: var(--bg-tertiary); }
+.kill-switch.active { border-color: var(--short); animation: pulse 2s infinite; }
 
-.topbar-spacer { flex: 1; }
-
-/* ── Connection Pill ───────────────────────────────────────── */
-.conn-pill {
-    display: flex; align-items: center; gap: var(--sp-2);
-    font-size: var(--fs-xs); color: var(--text-2);
-    padding: 4px 10px; background: var(--bg-tertiary);
-    border-radius: var(--r-full); border: 1px solid var(--border-1);
-    font-weight: 500;
-}
-
-/* ── User Menu ─────────────────────────────────────────────── */
-.user-pill {
-    display: flex; align-items: center; gap: var(--sp-2);
-    padding: 3px 10px 3px 3px; background: var(--bg-tertiary);
-    border-radius: var(--r-full); border: 1px solid var(--border-1);
-    cursor: pointer; transition: border-color var(--t-fast);
-}
-.user-pill:hover { border-color: var(--border-2); }
-.user-avatar {
-    width: 24px; height: 24px; border-radius: 50%;
-    background: linear-gradient(135deg, var(--accent), var(--accent-secondary));
-    display: flex; align-items: center; justify-content: center;
-    font-size: var(--fs-2xs); font-weight: 800; color: #fff;
-}
-.user-name { font-size: var(--fs-xs); font-weight: 500; color: var(--text-2); }
+.cmdk-trigger { cursor: pointer; transition: all var(--t-fast); }
+.cmdk-trigger:hover { background: var(--bg-hover-subtle); border-color: var(--border-2); }
 
 /* ═══ APP BODY ══════════════════════════════════════════════ */
 .app-body { display: flex; flex: 1; overflow: hidden; }
@@ -75,7 +48,7 @@
 /* ═══ LEFT PANE ═════════════════════════════════════════════ */
 .left-pane {
     width: var(--left-w); min-width: var(--left-w);
-    background: var(--bg-secondary);
+    background: var(--bg-panel-left);
     border-right: 1px solid var(--border-1);
     display: flex; flex-direction: column; overflow: hidden;
 }
@@ -183,3 +156,33 @@
     position: absolute; bottom: var(--sp-2); right: var(--sp-2);
     z-index: 5;
 }
+
+/* ═══ RIGHT PANE ════════════════════════════════════════════ */
+.right-pane {
+    width: var(--right-w); min-width: var(--right-w);
+    background: var(--bg-panel-right);
+    border-left: 1px solid var(--border-1);
+    display: flex; flex-direction: column; overflow: hidden;
+    transition: width var(--t-fast);
+}
+@media (max-width: 1280px) {
+    .right-pane { width: 48px; min-width: 48px; }
+    /* Collapse behavior to be fully styled optionally */
+}
+
+/* ═══ FOOTER STATUS BAR ═════════════════════════════════════ */
+.footer-bar {
+    height: var(--footer-h); min-height: var(--footer-h);
+    background: var(--bg-primary);
+    border-top: 1px solid var(--border-1);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 var(--sp-3);
+    font-size: 11px; color: var(--text-3); font-family: var(--ff-mono);
+}
+.footer-left { display: flex; align-items: center; gap: var(--sp-2); }
+.footer-center { flex: 1; text-align: center; }
+.footer-right { display: flex; align-items: center; gap: var(--sp-3); }
+.footer-status-item {
+    display: flex; align-items: center; gap: 6px;
+}
+.footer-status-item:hover { color: var(--text-2); }
