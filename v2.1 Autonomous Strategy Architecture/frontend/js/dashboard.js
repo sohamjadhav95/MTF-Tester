@@ -580,9 +580,7 @@ async function handleLaunchScanner() {
 
         // Store historical signals and pre-populate scanner panel
         _activeScanners[scannerId].signals = [...signals];
-        for (const sig of signals) {
-            addSignalToScannerPanel(sig);
-        }
+        [...signals].reverse().forEach(sig => addSignalToScannerPanel(sig));
 
         // Inject historical signals as markers on matching charts
         _addHistoricalSignalMarkersToCharts(signals);
