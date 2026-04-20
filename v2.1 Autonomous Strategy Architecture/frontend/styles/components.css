@@ -12,7 +12,7 @@
 }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; pointer-events: none; }
 .btn-primary { background: var(--accent); color: #fff; }
-.btn-primary:hover { background: var(--accent-hover); box-shadow: var(--shadow-accent); }
+.btn-primary:hover { background: var(--accent-hover); box-shadow: var(--shadow-2); }
 .btn-secondary { background: var(--bg-tertiary); color: var(--text-2); border-color: var(--border-2); }
 .btn-secondary:hover { background: var(--bg-elevated); color: var(--text-1); border-color: var(--text-3); }
 .btn-long { background: var(--long); color: #fff; }
@@ -202,7 +202,7 @@
 .chip-warn  { background: var(--short-bg); color: var(--short); }
 
 /* ── Position Row ──────────────────────────────────────────── */
-.rp-positions-list .pos-row {
+#rp-positions-list .pos-row {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 2px 12px;
@@ -211,21 +211,21 @@
   font-size: 12px;
   position: relative;
 }
-.rp-positions-list .pos-row:hover { background: var(--bg-hover-subtle); }
-.rp-positions-list .pos-row-sym { font-weight: 700; }
-.rp-positions-list .pos-row-dir { font-weight: 600; font-size: 10px; padding: 1px 5px; border-radius: 2px; }
-.rp-positions-list .pos-row-dir.buy { background: var(--long-bg); color: var(--long); }
-.rp-positions-list .pos-row-dir.sell { background: var(--short-bg); color: var(--short); }
-.rp-positions-list .pos-row-pips {
+#rp-positions-list .pos-row:hover { background: var(--bg-hover-subtle); }
+#rp-positions-list .pos-row-sym { font-weight: 700; }
+#rp-positions-list .pos-row-dir { font-weight: 600; font-size: 10px; padding: 1px 5px; border-radius: 2px; }
+#rp-positions-list .pos-row-dir.buy { background: var(--long-bg); color: var(--long); }
+#rp-positions-list .pos-row-dir.sell { background: var(--short-bg); color: var(--short); }
+#rp-positions-list .pos-row-pips {
   font-family: var(--ff-mono); font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
-.rp-positions-list .pos-row-pips.profit { color: var(--long); }
-.rp-positions-list .pos-row-pips.loss   { color: var(--short); }
-.rp-positions-list .pos-row-prices { font-family: var(--ff-mono); color: var(--text-3); font-size: 11px; }
+#rp-positions-list .pos-row-pips.profit { color: var(--long); }
+#rp-positions-list .pos-row-pips.loss   { color: var(--short); }
+#rp-positions-list .pos-row-prices { font-family: var(--ff-mono); color: var(--text-3); font-size: 11px; }
 
-.rp-positions-list .pos-row-price-now.flash-up   { animation: flashLong 400ms ease-out; }
-.rp-positions-list .pos-row-price-now.flash-down { animation: flashShort 400ms ease-out; }
+#rp-positions-list .pos-row-price-now.flash-up   { animation: flashLong 400ms ease-out; }
+#rp-positions-list .pos-row-price-now.flash-down { animation: flashShort 400ms ease-out; }
 @keyframes flashLong { 0% { background: var(--long-bg); } 100% { background: transparent; } }
 @keyframes flashShort { 0% { background: var(--short-bg); } 100% { background: transparent; } }
 

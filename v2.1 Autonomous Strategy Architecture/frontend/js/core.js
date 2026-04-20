@@ -119,7 +119,7 @@ function initCmdK() {
         { id: 'close-all', title: 'Close All Open Positions', category: 'Trading', icon: 'x-circle', action: () => {
             document.getElementById('rp-close-all-btn')?.click();
         } },
-        { id: 'kill-switch', title: 'Toggle Emergency Kill Switch', category: 'System', icon: 'alert-triangle', action: () => {
+        { id: 'kill-switch', title: 'Show Kill-Switch Status', category: 'System', icon: 'alert-triangle', action: () => {
             document.getElementById('header-kill-btn')?.click();
         } }
     ];
