@@ -36,7 +36,7 @@
         <div class="topbar-right" style="display:flex; align-items:center; gap:var(--sp-3);">
             <div class="risk-chip text-3" id="header-risk-chip" style="font-size:10px; letter-spacing:0.08em; font-weight:600; padding:2px 6px; border-radius:3px; background:var(--bg-tertiary);">RISK: DISARMED</div>
             <button class="kill-switch" id="header-kill-btn" style="display:flex; align-items:center; gap:6px; color:var(--short); font-size:11px; font-weight:700; letter-spacing:0.05em;">
-                <span id="header-kill-text">● KILL-SW OFF</span>
+                <span id="header-kill-text"><i data-lucide="octagon-x" style="width:12px;height:12px;"></i> KILL-SW OFF</span>
             </button>
             <button class="cmdk-trigger" id="cmdk-trigger" style="font-family:var(--ff-mono); font-size:10px; background:var(--bg-tertiary); padding:2px 6px; border-radius:3px; border:1px solid var(--border-1); color:var(--text-2);">⌘K</button>
         </div>
@@ -55,7 +55,7 @@
                     <span class="nav-label">Dashboard</span>
                 </div>
                 <div class="nav-item" data-panel="charts" id="nav-charts">
-                    <i data-lucide="line-chart" class="nav-ico"></i>
+                    <i data-lucide="candlestick-chart" class="nav-ico"></i>
                     <span class="nav-label">Charts</span>
                 </div>
                 <div class="nav-item" data-panel="mtf-config" id="nav-mtf-config">
@@ -227,8 +227,8 @@
                         <!-- Data Source Info -->
                         <div class="form-group">
                             <div class="form-hint" style="color: var(--accent); font-size: 11px; line-height: 1.5;">
-                                ⚡ Engine feeds M1 data — strategy handles all timeframe logic internally.<br>
-                                ⚠️ <strong>Note:</strong> To ensure live/backtest parity, the engine pre-warms indicators. The first 1440 bars (1 day) will silently absorb data without emitting signals.
+                                <i data-lucide="zap" style="width:12px;height:12px;margin-right:2px;vertical-align:-2px;"></i> Engine feeds M1 data — strategy handles all timeframe logic internally.<br>
+                                <i data-lucide="alert-triangle" style="width:12px;height:12px;margin-right:2px;vertical-align:-2px;"></i> <strong>Note:</strong> To ensure live/backtest parity, the engine pre-warms indicators. The first 1440 bars (1 day) will silently absorb data without emitting signals.
                             </div>
                         </div>
 
@@ -244,7 +244,7 @@
                         <!-- Actions -->
                         <div style="display: flex; gap: var(--sp-3); margin-top: var(--sp-5);">
                             <button type="submit" class="btn btn-primary btn-block btn-lg" id="cfg-launch-btn">
-                                ⚡ Launch Scanner
+                                <i data-lucide="zap" style="width:14px;height:14px;"></i> Launch Scanner
                             </button>
                         </div>
                     </form>
@@ -290,7 +290,7 @@
                         <div class="dash-section-title" style="margin-bottom: var(--sp-2);">
                             Uploaded Strategies
                             <button class="btn btn-ghost btn-xs" onclick="refreshUploadedStrategies()" 
-                                    style="margin-left: var(--sp-2); font-size:11px;">↺ Refresh</button>
+                                    style="margin-left: var(--sp-2); font-size:11px;"><i data-lucide="refresh-cw" style="width:12px;height:12px;margin-right:2px;vertical-align:-2px;"></i> Refresh</button>
                         </div>
                         <div id="strat-uploaded-list"></div>
                     </div>

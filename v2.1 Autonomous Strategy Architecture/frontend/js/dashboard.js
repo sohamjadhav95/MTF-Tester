@@ -364,12 +364,10 @@ async function refreshPositions() {
         if (rpTitleCount) rpTitleCount.textContent = positions.length;
 
         const rpList = document.getElementById('rp-positions-list');
-        const dashContainer = document.getElementById('dash-positions');
 
         if (positions.length === 0) {
             const emptyHtml = `<div class="empty-state"><i data-lucide="inbox" class="empty-state-icon" style="width:24px; height:24px; opacity:0.3; margin-bottom:8px;"></i><span class="empty-state-desc" style="font-size:11px;">No open positions</span></div>`;
             if (rpList) rpList.innerHTML = emptyHtml;
-            if (dashContainer) dashContainer.innerHTML = emptyHtml;
             if (typeof lucide !== 'undefined') lucide.createIcons();
             return;
         }
@@ -399,26 +397,6 @@ async function refreshPositions() {
             }).join('');
         }
 
-        // Render Dash Center Format (Legacy)
-        if (dashContainer) {
-            dashContainer.innerHTML = positions.map(p => {
-                const dir = (p.type || '').toUpperCase().includes('BUY') ? 'BUY' : 'SELL';
-                const cls = dir === 'BUY' ? 'long' : 'short';
-                const pnlCls = p.profit >= 0 ? 'profit' : 'loss';
-                return `<div class="pos-row">
-                    <span class="badge badge-${cls}">${dir}</span>
-                    <div class="pos-col" style="flex:1;">
-                        <span class="pos-symbol">${p.symbol}</span>
-                        <span class="pos-detail">Vol: ${p.volume}  ·  Ticket: ${p.ticket}</span>
-                    </div>
-                    <div class="pos-col" style="text-align:right;">
-                        <span class="mono" style="font-size:var(--fs-xs); color:var(--text-2);">Open: ${fmtPrice(p.price_open)}</span>
-                        <span class="mono" style="font-size:var(--fs-xs); color:var(--text-2);">Curr: ${fmtPrice(p.price_current)}</span>
-                    </div>
-                    <span class="pos-pnl ${pnlCls}">${fmtMoney(p.profit)}</span>
-                </div>`;
-            }).join('');
-        }
     } catch (e) { /* not connected */ }
 }
 
