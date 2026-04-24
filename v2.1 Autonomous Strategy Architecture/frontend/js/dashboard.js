@@ -514,10 +514,10 @@ async function loadStrategies() {
         if (_strategies.length > 0) renderStratSettings(_strategies[0].name);
 
         // Launch form
-        document.getElementById('mtf-config-form').addEventListener('submit', (e) => {
+        document.getElementById('mtf-config-form').onsubmit = (e) => {
             e.preventDefault();
             handleLaunchScanner();
-        });
+        };
     } catch (err) {
         console.error('Failed to load strategies:', err);
     }
