@@ -2,58 +2,28 @@
 Heartbeat Test Strategy — Normal Use Case Verifier
 ===================================================
 A deterministic "clock" strategy that emits BUY/SELL on a fixed cadence of
-M1 bars. Use this to verify the happy path end-to-end:
-
-    scanner launch → historical backfill → live polling → signal emission
-      → panel counters tick → right-pane activity feed → chart markers
-      → auto-trade opens real order → SL/TP hit logic → position close
-      → right-pane positions/equity refresh → footer stats update
-      → backtest over a date range produces EXACTLY the predicted count
-      → stop scanner → nav card removed → other scanners unaffected
+M1 bars. Use this to verify the happy path end-to-end.
 
 No look-ahead, no noise, no false signals. Every signal is timestamped by the
 bar's close time, so you can check the log and know EXACTLY when each fired.
 
 HOW TO READ SIGNALS
 -------------------
-The strategy fires BUY every `cadence_bars` M1 bars starting at bar index
-`offset_bars`. SELL fires exactly `cadence_bars / 2` bars offset from BUY
-(so they alternate evenly). SL and TP are symmetric: ±`sl_pips` / ±`tp_pips`
-around the current close. Use a symbol with a known pip size (EURUSD = 0.0001)
-for clean arithmetic.
-
-PREDICTION EQUATION
--------------------
-Total signals emitted over a window of N M1 bars, with cadence C and offset O:
-    N_buys  = floor((N - O - 1) / C) + 1
-    N_sells = floor((N - O - 1 - C/2) / C) + 1  (if the first SELL falls within N)
-
-Example: N=1000 M1 bars, C=60, O=0  →  N_buys = 17, N_sells = 17, total = 34.
+The strategy fires BUY every `cadence_bars` M1 bars. SELL fires exactly
+`cadence_bars / 2` bars offset from BUY. SL and TP are dynamically sized
+using the Average True Range (ATR) so that the stops are valid for ANY
+symbol without needing manual pip size configuration. This prevents broker
+errors like "Invalid stops (code 10016)".
 
 USAGE
 -----
 Upload this file via Create Strategy → Upload. Then in MTF Strategy:
     Session Name: "Heartbeat"
-    Symbol:       EURUSD (or any active symbol)
+    Symbol:       Any active symbol (e.g., EURUSD, XAUUSDm)
     Strategy:     Heartbeat Test
     cadence_bars: 60   (a signal every hour of M1 data)
-    offset_bars:  0
-    sl_pips:      20
-    tp_pips:      40
-    pip_size:     0.0001
 
-Launch. Within ~60 M1 bars (60 real minutes on live, or instantly in the
-3000-bar backfill scan) you'll see the first BUY; then a SELL 30 bars later.
-The signal panel badge increments, the right-pane activity feed prepends a
-row, and if auto-trade is enabled a real MT5 order is placed with the stated
-SL/TP.
-
-NOTE ON WARMUP
---------------
-The engine silently absorbs the first 1440 M1 bars (1 day) as warmup. If
-`offset_bars` < 1440 in a backtest, the early signals will be absorbed too.
-For a clean backtest over a 2-3 day window, set `offset_bars` to 1440 or
-larger, or select a backtest window that starts well after the warmup ends.
+Launch. Within ~60 M1 bars you'll see the first BUY; then a SELL 30 bars later.
 """
 
 from __future__ import annotations
@@ -75,17 +45,13 @@ class HeartbeatConfig(StrategyConfig):
         0, ge=0, le=10_000,
         description="Skip the first N bars before starting the clock"
     )
-    sl_pips: float = Field(
-        20.0, ge=0, le=10_000,
-        description="Stop Loss distance in pips (0 = no SL)"
+    atr_multiplier: float = Field(
+        2.0, ge=0.1, le=10.0,
+        description="Stop Loss distance as a multiple of ATR (volatility-scaled)"
     )
-    tp_pips: float = Field(
-        40.0, ge=0, le=10_000,
-        description="Take Profit distance in pips (0 = no TP)"
-    )
-    pip_size: float = Field(
-        0.0001, gt=0, le=1.0,
-        description="Pip size for this symbol (EURUSD=0.0001, XAUUSD=0.1, BTCUSD=1.0)"
+    rr_ratio: float = Field(
+        2.0, ge=0.1, le=20.0,
+        description="Take Profit distance as a multiple of SL distance (Risk/Reward)"
     )
     direction_mode: Literal["alternate", "long_only", "short_only"] = Field(
         "alternate",
@@ -95,29 +61,50 @@ class HeartbeatConfig(StrategyConfig):
 
 class HeartbeatTest(BaseStrategy):
     name = "Heartbeat Test"
-    description = "Deterministic clock strategy — BUY/SELL on fixed M1-bar cadence. Use for end-to-end verification."
+    description = "Deterministic clock strategy — BUY/SELL on fixed cadence. Auto-scaled stops."
     config_model = HeartbeatConfig
 
     def on_start(self, data: pd.DataFrame) -> None:
-        """Initialize the cumulative bar count for absolute indexing."""
+        """Pre-compute indicators. We use ATR for dynamic stop loss sizing."""
         self.state.setdefault("cum_bars", len(data))
+        
+        high = data["high"].values.astype(float)
+        low = data["low"].values.astype(float)
+        close = data["close"].values.astype(float)
+        
+        # Calculate True Range
+        tr = np.full(len(close), np.nan)
+        if len(close) > 0:
+            tr[0] = high[0] - low[0]
+            for i in range(1, len(close)):
+                hl = high[i] - low[i]
+                hc = abs(high[i] - close[i - 1])
+                lc = abs(low[i] - close[i - 1])
+                tr[i] = max(hl, hc, lc)
+        
+        # Calculate 14-period ATR
+        period = 14
+        atr = np.full(len(tr), np.nan)
+        if len(tr) >= period:
+            atr[period - 1] = np.mean(tr[:period])
+            for i in range(period, len(tr)):
+                atr[i] = (atr[i - 1] * (period - 1) + tr[i]) / period
+
         self._cache = {
-            "closes": data["close"].values.astype(float),
+            "closes": close,
+            "atr": atr,
         }
 
     def on_update(self, new_bars: pd.DataFrame, data: pd.DataFrame) -> None:
-        """Increment the cumulative bar count by the number of new bars."""
+        """Increment cumulative bars and re-run on_start to update ATR."""
         self.state["cum_bars"] += len(new_bars)
-        self._cache = {
-            "closes": data["close"].values.astype(float),
-        }
+        self.on_start(data)
 
     def on_bar(self, index: int, data: pd.DataFrame) -> Signal:
         cache = self._cache
         if not cache:
             return HOLD
 
-        # Calculate absolute index to account for dataframe truncation in live mode
         cum_bars = self.state.get("cum_bars", len(data))
         abs_index = cum_bars - len(data) + index
 
@@ -145,26 +132,26 @@ class HeartbeatTest(BaseStrategy):
         if cfg.direction_mode == "short_only" and direction == "BUY":
             return HOLD
 
-        cfg = self.config
         price = float(cache["closes"][index])
+        atr_val = cache["atr"][index]
+        
+        # Fallback if ATR is not ready or is zero (extremely low volatility)
+        if np.isnan(atr_val) or atr_val <= 0:
+            atr_val = price * 0.001  # 0.1% of price as fallback
+
+        # Calculate Stop Loss distance based on ATR
+        sl_dist = atr_val * cfg.atr_multiplier
+        tp_dist = sl_dist * cfg.rr_ratio
+
         sl = None
         tp = None
 
-        if cfg.sl_pips > 0:
-            if direction == "BUY":
-                sl = price - cfg.sl_pips * cfg.pip_size
-            else:
-                sl = price + cfg.sl_pips * cfg.pip_size
-            if sl <= 0:
-                sl = None  # invalid SL for very cheap symbols
-
-        if cfg.tp_pips > 0:
-            if direction == "BUY":
-                tp = price + cfg.tp_pips * cfg.pip_size
-            else:
-                tp = price - cfg.tp_pips * cfg.pip_size
-            if tp <= 0:
-                tp = None
+        if direction == "BUY":
+            sl = price - sl_dist
+            tp = price + tp_dist
+        else:
+            sl = price + sl_dist
+            tp = price - tp_dist
 
         return Signal(
             direction=direction,
@@ -172,8 +159,7 @@ class HeartbeatTest(BaseStrategy):
             tp=tp,
             metadata={
                 "strategy": "Heartbeat",
-                "bar_index": int(index),
-                "cadence": cfg.cadence_bars,
-                "source_price": round(price, 6),
+                "abs_index": abs_index,
+                "atr": round(atr_val, 5),
             },
         )
