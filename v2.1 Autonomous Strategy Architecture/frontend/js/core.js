@@ -114,13 +114,13 @@ function initCmdK() {
 
     const commands = [
         { id: 'dash', title: 'Go to Dashboard', category: 'Navigation', icon: 'layout-dashboard', action: () => switchPanel('dashboard') },
-        { id: 'strat', title: 'Go to Strategies', category: 'Navigation', icon: 'cpu', action: () => switchPanel('strategies') },
+        { id: 'strat', title: 'Go to Strategies', category: 'Navigation', icon: 'cpu', action: () => switchPanel('mtf-config') },
         { id: 'chart', title: 'Go to Technical Charts', category: 'Navigation', icon: 'line-chart', action: () => switchPanel('charts') },
         { id: 'close-all', title: 'Close All Open Positions', category: 'Trading', icon: 'x-circle', action: () => {
             document.getElementById('rp-close-all-btn')?.click();
         } },
-        { id: 'kill-switch', title: 'Toggle Emergency Kill Switch', category: 'System', icon: 'alert-triangle', action: () => {
-            document.getElementById('global-kill-switch')?.click();
+        { id: 'kill-switch', title: 'Show Kill-Switch Status', category: 'System', icon: 'alert-triangle', action: () => {
+            document.getElementById('header-kill-btn')?.click();
         } }
     ];
 

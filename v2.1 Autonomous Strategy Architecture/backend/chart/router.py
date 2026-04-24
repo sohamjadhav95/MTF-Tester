@@ -122,7 +122,7 @@ async def upload_strategy(file: UploadFile = File(...), request: Request = None)
     tmp_path.write_bytes(content_bytes)
 
     # 4. Try to import it and find the strategy class
-    import importlib, importlib.util
+    import importlib, importlib.util, sys
     module_name = f"strategies._upload_check_{file.filename[:-3]}"
     spec = importlib.util.spec_from_file_location(module_name, tmp_path)
     if spec is None or spec.loader is None:
@@ -130,9 +130,11 @@ async def upload_strategy(file: UploadFile = File(...), request: Request = None)
         raise HTTPException(status_code=400, detail="Could not prepare module loader")
 
     module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
     try:
         spec.loader.exec_module(module)
     except Exception as e:
+        sys.modules.pop(module_name, None)
         tmp_path.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail=f"Module failed to load: {e}")
 
@@ -145,6 +147,7 @@ async def upload_strategy(file: UploadFile = File(...), request: Request = None)
             break
 
     if found_cls is None:
+        sys.modules.pop(module_name, None)
         tmp_path.unlink(missing_ok=True)
         raise HTTPException(
             status_code=400,
@@ -193,11 +196,13 @@ async def upload_strategy(file: UploadFile = File(...), request: Request = None)
             except Exception as e:
                 raise ValueError(f"on_bar returned unparseable value on bar {i}: {e}")
     except Exception as e:
+        sys.modules.pop(module_name, None)
         tmp_path.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail=f"Strategy smoke-test failed: {e}")
 
     # 6. Name collision against already-registered strategies
     if strategy_name in auto_discover_strategies():
+        sys.modules.pop(module_name, None)
         tmp_path.unlink(missing_ok=True)
         raise HTTPException(
             status_code=409,
@@ -211,6 +216,7 @@ async def upload_strategy(file: UploadFile = File(...), request: Request = None)
     _registry.clear()
 
     schema = found_cls.config_model.model_json_schema() if getattr(found_cls, "config_model", None) else {}
+    sys.modules.pop(module_name, None)
 
     log.info(f"Strategy uploaded | name='{strategy_name}' | file={safe_name}")
     return {
