@@ -19,6 +19,7 @@ let _mt5Symbols = [];
 let _signalWs = null;       // Global signal WebSocket
 let _globalIndicators = {};  // TRACKS NO MORE
 let _renderedSignalIds = new Set(); // Dedup: track displayed signal IDs
+let _footerErrorCount = 0;
 
 document.addEventListener('DOMContentLoaded', () => {
     try {
@@ -32,6 +33,8 @@ document.addEventListener('DOMContentLoaded', () => {
         initStrategyUpload();
         initWatchlistPanel();
         connectGlobalSignalWS();
+        initKillSwitchIndicator();
+        refreshRiskChip();
 
         // Sync active scanners from backend to restore UI state on refresh
         syncActiveScanners().then(() => {
@@ -55,7 +58,7 @@ async function checkOrphans() {
         const list = d.orphans || [];
         if (list.length > 0) {
             const ok = await showConfirm(
-                '⚠️ Orphan Positions Detected',
+                'Orphan Positions Detected',
                 `${list.length} orphan auto-trade positions found from a previous session crash. The engine has synced deduplication hashes to prevent double-entries, but you must MANUALLY close or manage these open positions. Check your MT5 terminal.`
             );
             if (ok) {
@@ -65,6 +68,62 @@ async function checkOrphans() {
             }
         }
     } catch(e) {}
+}
+
+// ═══ KILL-SWITCH INDICATOR ════════════════════════════════════
+// The kill-switch is controlled by the AUTO_EXEC_KILL_SWITCH env var,
+// read at server startup. The UI only REFLECTS state and explains how
+// to toggle. Clicking the button opens a confirm modal with instructions.
+async function initKillSwitchIndicator() {
+    const btn = document.getElementById('header-kill-btn');
+    const txt = document.getElementById('header-kill-text');
+    if (!btn) return;
+
+    async function refreshState() {
+        try {
+            const r = await api('/api/order/auto/status');
+            const on = !!r.kill_switch;
+            if (on) {
+                btn.classList.add('active');
+                if (txt) txt.textContent = '● KILL-SW ON';
+            } else {
+                btn.classList.remove('active');
+                if (txt) txt.textContent = '● KILL-SW OFF';
+            }
+        } catch (e) { /* backend unreachable — leave as-is */ }
+    }
+
+    btn.addEventListener('click', async () => {
+        const state = btn.classList.contains('active') ? 'ON (auto-trades blocked)' : 'OFF (auto-trades allowed)';
+        await showConfirm(
+            'Emergency Kill-Switch',
+            `Current state: ${state}\n\n` +
+            `To change the kill-switch, edit AUTO_EXEC_KILL_SWITCH in your .env file ` +
+            `and restart the server. This design prevents accidental toggling of a ` +
+            `safety-critical control.`
+        );
+    });
+
+    await refreshState();
+    // Refresh periodically alongside auto-trade sync (every 30s is enough — .env doesn't change live)
+    setInterval(refreshState, 30000);
+}
+
+async function refreshRiskChip() {
+    const chip = document.getElementById('header-risk-chip');
+    if (!chip) return;
+    try {
+        const r = await api('/api/order/risk');
+        if (r.enabled) {
+            chip.textContent = `RISK: ${parseFloat(r.threshold_pct).toFixed(1)}%`;
+            chip.style.background = 'var(--warning-bg, rgba(240,160,48,0.12))';
+            chip.style.color = 'var(--warning)';
+        } else {
+            chip.textContent = 'RISK: DISARMED';
+            chip.style.background = 'var(--bg-tertiary)';
+            chip.style.color = 'var(--text-3)';
+        }
+    } catch (e) { /* silent */ }
 }
 
 
@@ -162,8 +221,8 @@ function initMT5Connection() {
 }
 
 function setMT5Connected(on, info = null) {
-    const dot = document.getElementById('footer-mt5-led');
-    const txt = document.getElementById('footer-mt5-status');
+    const dot = document.getElementById('footer-conn-led');
+    const txt = document.getElementById('footer-conn-text');
     const badge = document.getElementById('mt5-status-badge');
 
     if (on) {
@@ -189,14 +248,7 @@ let _equityHistory = []; // In-memory equity tracking
 function updateAccountDisplay(info) {
     if (!info) return;
     const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-    
-    // Legacy dash center
-    set('acc-balance', fmtMoney(info.balance));
-    set('acc-equity', fmtMoney(info.equity || info.balance));
-    set('acc-margin', fmtMoney(info.free_margin));
-    set('acc-server', info.server || '—');
 
-    // New Right Pane / Header
     const eqAmt = info.equity || info.balance;
     set('header-equity', fmtMoney(eqAmt));
     set('rp-equity', fmtMoney(eqAmt));
@@ -205,15 +257,15 @@ function updateAccountDisplay(info) {
 
     const pnl = info.profit;
     const pnlStr = pnl != null ? (pnl >= 0 ? '+' : '') + fmtMoney(pnl) : '—';
-    
-    // Dash center PNL
-    const pnlEl = document.getElementById('acc-pnl');
-    if (pnlEl) {
-        pnlEl.textContent = pnlStr;
-        if (pnl != null) pnlEl.style.color = colorVal(pnl);
+
+    // Header PnL
+    const headerPnl = document.getElementById('header-pnl');
+    if (headerPnl) {
+        headerPnl.textContent = pnlStr;
+        if (pnl != null) headerPnl.style.color = colorVal(pnl);
     }
-    
-    // RP Floating PNL
+
+    // Right-pane floating PnL
     const rpFloatEl = document.getElementById('rp-floating');
     if (rpFloatEl) {
         rpFloatEl.textContent = pnlStr;
@@ -342,9 +394,7 @@ async function refreshAccountInfo() {
     try {
         const info = await api('/api/order/account');
         updateAccountDisplay(info);
-        const posEl = document.getElementById('acc-positions');
-        if (posEl && info.positions_count != null) posEl.textContent = info.positions_count;
-        refreshPositions();
+        await refreshPositions();
     } catch (e) { /* not connected */ }
 }
 
@@ -364,12 +414,10 @@ async function refreshPositions() {
         if (rpTitleCount) rpTitleCount.textContent = positions.length;
 
         const rpList = document.getElementById('rp-positions-list');
-        const dashContainer = document.getElementById('dash-positions');
 
         if (positions.length === 0) {
             const emptyHtml = `<div class="empty-state"><i data-lucide="inbox" class="empty-state-icon" style="width:24px; height:24px; opacity:0.3; margin-bottom:8px;"></i><span class="empty-state-desc" style="font-size:11px;">No open positions</span></div>`;
             if (rpList) rpList.innerHTML = emptyHtml;
-            if (dashContainer) dashContainer.innerHTML = emptyHtml;
             if (typeof lucide !== 'undefined') lucide.createIcons();
             return;
         }
@@ -399,26 +447,6 @@ async function refreshPositions() {
             }).join('');
         }
 
-        // Render Dash Center Format (Legacy)
-        if (dashContainer) {
-            dashContainer.innerHTML = positions.map(p => {
-                const dir = (p.type || '').toUpperCase().includes('BUY') ? 'BUY' : 'SELL';
-                const cls = dir === 'BUY' ? 'long' : 'short';
-                const pnlCls = p.profit >= 0 ? 'profit' : 'loss';
-                return `<div class="pos-row">
-                    <span class="badge badge-${cls}">${dir}</span>
-                    <div class="pos-col" style="flex:1;">
-                        <span class="pos-symbol">${p.symbol}</span>
-                        <span class="pos-detail">Vol: ${p.volume}  ·  Ticket: ${p.ticket}</span>
-                    </div>
-                    <div class="pos-col" style="text-align:right;">
-                        <span class="mono" style="font-size:var(--fs-xs); color:var(--text-2);">Open: ${fmtPrice(p.price_open)}</span>
-                        <span class="mono" style="font-size:var(--fs-xs); color:var(--text-2);">Curr: ${fmtPrice(p.price_current)}</span>
-                    </div>
-                    <span class="pos-pnl ${pnlCls}">${fmtMoney(p.profit)}</span>
-                </div>`;
-            }).join('');
-        }
     } catch (e) { /* not connected */ }
 }
 
@@ -429,22 +457,46 @@ document.addEventListener('DOMContentLoaded', () => {
             const ok = await showConfirm('Close All', 'Close all open positions?');
             if(!ok) return;
             try {
-                await api('/api/order/close_all', 'POST');
-                showToast('Closing all positions...', 'info');
-                refreshPositions();
+                const r = await api('/api/order/close-all', 'POST');
+                showToast(`Closed ${r.closed_count || 0} positions`, 'success');
+                refreshAccountInfo();
             } catch(e) {
                 showToast(e.message, 'error');
             }
+        });
+    }
+
+    const footerErrBtn = document.getElementById('footer-errors');
+    if (footerErrBtn) {
+        footerErrBtn.addEventListener('click', () => {
+            _footerErrorCount = 0;
+            footerErrBtn.textContent = 'errors 0';
+            footerErrBtn.style.color = 'var(--text-2)';
         });
     }
 });
 
 function pollAccountInfo() {
     setInterval(() => {
-        if (document.getElementById('conn-dot')?.classList.contains('dot-on')) {
-            refreshAccountInfo();
+        const led = document.getElementById('footer-conn-led');
+        if (led && led.classList.contains('led-live')) {
+            // Piggyback latency measurement on the account refresh HTTP call.
+            const t0 = performance.now();
+            refreshAccountInfo().finally(() => {
+                const dt = Math.round(performance.now() - t0);
+                updateLatencyIndicator(dt);
+            });
         }
     }, 10000);
+}
+
+function updateLatencyIndicator(ms) {
+    const val = document.getElementById('latency-val');
+    const dot = document.getElementById('latency-dot');
+    if (val) val.textContent = ms;
+    if (!dot) return;
+    // Threshold: <100ms green, <300ms amber, >=300ms red.
+    dot.className = 'led ' + (ms < 100 ? 'led-live' : ms < 300 ? 'led-idle' : 'led-error');
 }
 
 // ═══ STRATEGY LOADING ═════════════════════════════════════════
@@ -462,10 +514,10 @@ async function loadStrategies() {
         if (_strategies.length > 0) renderStratSettings(_strategies[0].name);
 
         // Launch form
-        document.getElementById('mtf-config-form').addEventListener('submit', (e) => {
+        document.getElementById('mtf-config-form').onsubmit = (e) => {
             e.preventDefault();
             handleLaunchScanner();
-        });
+        };
     } catch (err) {
         console.error('Failed to load strategies:', err);
     }
@@ -717,7 +769,7 @@ async function handleLaunchScanner() {
 
         // Load historical signals from API response into panel + chart markers
         const signals = data.historical_signals || [];
-        showToast(`✓ Scanner "${name}" started — ${signals.length} historical signals loaded`, 'success');
+        showToast(`Scanner "${name}" started — ${signals.length} historical signals loaded`, 'success');
 
         // Store historical signals and pre-populate scanner panel
         _activeScanners[scannerId].signals = [...signals];
@@ -734,7 +786,7 @@ async function handleLaunchScanner() {
         console.error('Scanner start failed:', err);
         showToast(`Scanner failed: ${err.message}`, 'error');
     } finally {
-        setLoading(btn, false, '⚡ Launch Scanner');
+        setLoading(btn, false, 'Launch Scanner');
     }
 }
 
@@ -790,6 +842,7 @@ function updateDashboardTelemetry() {
     const scIds = Object.keys(_activeScanners);
     let autoCount = 0;
     scIds.forEach(id => { if (_activeScanners[id].autoTrade) autoCount++; });
+    const sigCount = _renderedSignalIds.size;
 
     const elScanners = document.getElementById('dash-active-scanners-count');
     if (elScanners) elScanners.textContent = scIds.length;
@@ -798,7 +851,27 @@ function updateDashboardTelemetry() {
     if (elAutos) elAutos.textContent = autoCount;
 
     const elSigs = document.getElementById('dash-strats-count');
-    if (elSigs) elSigs.textContent = _renderedSignalIds.size;
+    if (elSigs) elSigs.textContent = sigCount;
+
+    // Footer stats — spec 6.3 schematic
+    const footerStats = document.getElementById('footer-stats-text');
+    if (footerStats) {
+        footerStats.innerHTML =
+            `Scanners ${scIds.length} ` +
+            `<span style="opacity:0.5;margin:0 6px;">|</span> ` +
+            `Signals today ${sigCount} ` +
+            `<span style="opacity:0.5;margin:0 6px;">|</span> ` +
+            `Auto-trades ${autoCount}`;
+    }
+}
+
+function incrementFooterErrors() {
+    _footerErrorCount++;
+    const el = document.getElementById('footer-errors');
+    if (el) {
+        el.textContent = `errors ${_footerErrorCount}`;
+        el.style.color = _footerErrorCount > 0 ? 'var(--short)' : 'var(--text-2)';
+    }
 }
 
 function refreshActiveStrategies() {
@@ -947,7 +1020,7 @@ async function syncAutoTradeState() {
         updateDashboardTelemetry();
         
         if (r.kill_switch) {
-            showToast('⚠️ Auto-trade global kill switch is ACTIVE in backend config', 'error', 10000);
+            showToast('Auto-trade global kill switch is ACTIVE in backend config', 'error', 10000);
         }
     } catch {}
 }
@@ -974,6 +1047,7 @@ function connectGlobalSignalWS() {
 
     _signalWs.onclose = () => {
         console.log('Global signal WS disconnected — reconnecting in 3s');
+        incrementFooterErrors();
         setTimeout(connectGlobalSignalWS, 3000);
     };
 }
@@ -1051,28 +1125,30 @@ function handleGlobalSignalMsg(msg) {
         const status = upd.status;
         
         if (status === 'SCANNER_ERROR') {
-            showToast(`💥 Scanner Error (${upd.scanner_id}): ${upd.error}`, 'error', 10000);
+            showToast(`Scanner Error (${upd.scanner_id}): ${upd.error}`, 'error', 10000);
             setTimeout(syncActiveScanners, 1000);
             setTimeout(syncAutoTradeState, 1500);
+            incrementFooterErrors();  // C-11 wiring
             return;
         }
 
-        // Existing SL/TP handling + new auto statuses
+        // Toasts — let showToast handle the ✓/✕ prefix via its type parameter.
         if (status === 'AUTO_PLACED') {
-            showToast(
-                `✓ Auto-placed: ${upd.symbol} ticket #${upd.ticket}`,
-                'success'
-            );
+            showToast(`Auto-placed: ${upd.symbol} ticket #${upd.ticket}`, 'success');
         } else if (status === 'AUTO_FAILED') {
-            showToast(
-                `✗ Auto-trade failed: ${upd.symbol} — ${upd.error || 'unknown'}`,
-                'error',
-                6000
-            );
+            showToast(`Auto-trade failed: ${upd.symbol} — ${upd.error || 'unknown'}`, 'error', 6000);
+            incrementFooterErrors();
         }
 
         // Update the signal row in the DOM
         updateGlobalSignalDOM(upd);
+
+        // MT5 state-changing statuses: refresh positions + account so right pane stays in sync
+        const MT5_MUTATING = ['AUTO_PLACED', 'CLOSED', 'SL_HIT', 'TP_HIT'];
+        if (MT5_MUTATING.includes(status)) {
+            // Small delay gives MT5 time to settle the position list
+            setTimeout(() => { refreshAccountInfo(); }, 300);
+        }
 
         // If AUTO_FAILED and fail_count tripped, resync state to reflect auto-disable
         if (status === 'AUTO_FAILED') {
@@ -1200,7 +1276,7 @@ function removeScannerNavAndPanel(scannerId) {
     // Hide scanner nav section if no scanners remain
     const scannerNavSection = document.getElementById('scanner-nav-section');
     if (scannerNavSection) {
-        const remaining = scannerNavSection.querySelectorAll('.nav-item');
+        const remaining = scannerNavSection.querySelectorAll('.scanner-card');
         if (remaining.length === 0) {
             scannerNavSection.style.display = 'none';
         }
@@ -1481,7 +1557,7 @@ function renderWatchGrid() {
 
     if (ids.length === 0) {
         grid.innerHTML = `<div class="empty-state" style="padding: 60px 24px; background: var(--bg-card);">
-            <div style="font-size: 40px; opacity: 0.15;">📈</div>
+            <i data-lucide="bar-chart-2" style="width:40px; height:40px; stroke-width:1.5; opacity:0.3; color:var(--text-3); margin-bottom:8px;"></i>
             <div class="empty-state-desc">Add a symbol to start watching live charts</div>
         </div>`;
         grid.className = 'watch-chart-grid';
@@ -1517,8 +1593,8 @@ function renderWatchGrid() {
                 </div>
                 <div style="display:flex; align-items:center; gap: 6px;">
                     <span class="chart-cell-price mono" id="watch-price-${wid}">—</span>
-                    <button class="chart-expand-btn" onclick="openExpandedWatch('${wid}')" title="Expand Chart">&#x26F6;</button>
-                    <button class="chart-expand-btn" onclick="removeWatchChart('${wid}')" title="Remove Chart" style="color:var(--short);">✕</button>
+                    <button class="chart-expand-btn" onclick="openExpandedWatch('${wid}')" title="Expand Chart"><i data-lucide="maximize-2" style="width:12px;height:12px;"></i></button>
+                    <button class="chart-expand-btn" onclick="removeWatchChart('${wid}')" title="Remove Chart" style="color:var(--short);"><i data-lucide="x" style="width:12px;height:12px;"></i></button>
                 </div>
             </div>
 
@@ -1536,6 +1612,8 @@ function renderWatchGrid() {
     requestAnimationFrame(() => {
         setTimeout(() => resizeAllWatchCharts(), 30);
     });
+
+    if (typeof lucide !== 'undefined') lucide.createIcons();
 }
 
 /** Attach ResizeObserver to a chart cell to handle auto-resize */
