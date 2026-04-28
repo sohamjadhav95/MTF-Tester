@@ -31,6 +31,11 @@ class Signal:
     """
     Structured signal return type. Preferred over raw string/tuple.
     
+    WARNING: The Engine executes all signals as MARKET ORDERS at the current Close.
+    If your strategy calculates a Limit/Pullback entry, DO NOT return a BUY/SELL signal
+    immediately. Instead, use a `self.state` State Machine to wait for the price to hit 
+    your zone, and only return the Signal once the price touches your zone.
+
     direction: 'BUY' | 'SELL' | 'HOLD'
     sl:        Absolute price level for stop loss. None = no SL.
     tp:        Absolute price level for take profit. None = no TP.
@@ -138,6 +143,12 @@ class BaseStrategy(ABC):
     def on_bar(self, index: int, data: pd.DataFrame) -> Signal | str | tuple | None:
         """
         Called on every M1 bar. Must be fast — reads from self._cache only.
+
+        CRITICAL LIVE POLLING TRAP: 
+        In LIVE mode, the `data` DataFrame is capped at 3000 bars. This means `index` 
+        stops growing and maxes out at ~2999. NEVER store `index` in `self.state` to 
+        measure duration (e.g. `self.state["setup_idx"] = index`). It will fail silently!
+        Instead, store `data.iloc[index]["time"]` or use an absolute `cum_bars` counter.
 
         Args:
             index: Current bar index in data (0-based).
