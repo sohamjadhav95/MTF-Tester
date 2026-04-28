@@ -84,6 +84,11 @@ class EMAPulseConfig(StrategyConfig):
         description="Risk / Reward ratio (e.g. 2.0 = 1:2)",
     )
 
+    zone_validity_bars: int = Field(
+        15, ge=1, le=500,
+        description="Zone validity — how many M1 bars to wait for a pullback before cancelling setup",
+    )
+
     use_trend_filter: bool = Field(
         True,
         description="Enable EMA 200 macro-trend filter on M1",
@@ -171,15 +176,6 @@ class EMAPulseStrategy(BaseStrategy):
         if cache is None or index < 2:
             return HOLD
 
-        # ── Resolve HTF pulse ─────────────────────────────────────────────
-        h_idx = cache["m1_to_htf"][index]
-        if h_idx < 1:
-            return HOLD   # need at least one completed HTF bar
-
-        pulse = int(cache["htf_pulse"][h_idx])
-        if pulse == 0:
-            return HOLD   # crossover — wait
-
         # ── Read M1 indicators ────────────────────────────────────────────
         ef    = cache["m1_ema_fast"][index]
         es    = cache["m1_ema_slow"][index]
@@ -190,22 +186,69 @@ class EMAPulseStrategy(BaseStrategy):
         high  = cache["m1_high"][index]
         low   = cache["m1_low"][index]
 
+        # ── 1. Process Pending Setup (Wait for Pullback) ──────────────────
+        pending = self.state.get("pending_setup")
+        if pending:
+            # Check expiration
+            if index > pending["expire_idx"]:
+                self.state["pending_setup"] = None
+                pending = None
+            else:
+                # Check for entry trigger
+                direction = pending["direction"]
+                zone = pending["entry_zone"]
+                
+                if direction == "BUY" and low <= zone:
+                    self.state["pending_setup"] = None
+                    return Signal(
+                        direction="BUY",
+                        sl=pending["sl"],
+                        tp=pending["tp"],
+                        metadata={
+                            "pulse": "Positive",
+                            "entry_zone_hit": round(zone, 6),
+                            "execution_bar": index,
+                        }
+                    )
+                elif direction == "SELL" and high >= zone:
+                    self.state["pending_setup"] = None
+                    return Signal(
+                        direction="SELL",
+                        sl=pending["sl"],
+                        tp=pending["tp"],
+                        metadata={
+                            "pulse": "Negative",
+                            "entry_zone_hit": round(zone, 6),
+                            "execution_bar": index,
+                        }
+                    )
+
+        # ── 2. Look for New Setups ────────────────────────────────────────
+        # Resolve HTF pulse
+        h_idx = cache["m1_to_htf"][index]
+        if h_idx < 1:
+            return HOLD   # need at least one completed HTF bar
+
+        pulse = int(cache["htf_pulse"][h_idx])
+        if pulse == 0:
+            return HOLD   # crossover — wait
+
         if any(np.isnan(v) for v in (ef, es, atr)):
             return HOLD
         if cfg.use_trend_filter and np.isnan(et):
             return HOLD
 
-        # ── Candle colour & price position ────────────────────────────────
-        is_green         = close > open_
-        is_red           = close < open_
+        # Candle colour & price position
+        is_green          = close > open_
+        is_red            = close < open_
         price_above_ema50 = close > es
         price_below_ema50 = close < es
 
-        # ── Macro trend filter (EMA 200) ──────────────────────────────────
+        # Macro trend filter (EMA 200)
         macro_up   = (not cfg.use_trend_filter) or (close > et)
         macro_down = (not cfg.use_trend_filter) or (close < et)
 
-        # ── BUY signal ────────────────────────────────────────────────────
+        # ── BUY setup ─────────────────────────────────────────────────────
         if (
             pulse == 1
             and price_above_ema50
@@ -218,22 +261,17 @@ class EMAPulseStrategy(BaseStrategy):
             risk       = entry_zone - sl
             tp         = entry_zone + cfg.rr_ratio * risk
 
-            if sl <= 0 or tp <= 0 or sl >= entry_zone:
-                return HOLD
+            if sl > 0 and tp > 0 and sl < entry_zone:
+                self.state["pending_setup"] = {
+                    "direction": "BUY",
+                    "entry_zone": round(entry_zone, 6),
+                    "sl": round(sl, 6),
+                    "tp": round(tp, 6),
+                    "expire_idx": index + cfg.zone_validity_bars
+                }
+            return HOLD
 
-            return Signal(
-                direction="BUY",
-                sl=round(sl, 6),
-                tp=round(tp, 6),
-                metadata={
-                    "pulse":       "Positive",
-                    "entry_zone":  round(entry_zone, 6),
-                    "ema_fast_htf": "above slow",
-                    "atr":         round(atr, 6),
-                },
-            )
-
-        # ── SELL signal ───────────────────────────────────────────────────
+        # ── SELL setup ────────────────────────────────────────────────────
         if (
             pulse == -1
             and price_below_ema50
@@ -246,20 +284,15 @@ class EMAPulseStrategy(BaseStrategy):
             risk       = sl - entry_zone
             tp         = entry_zone - cfg.rr_ratio * risk
 
-            if sl <= 0 or tp <= 0 or sl <= entry_zone:
-                return HOLD
-
-            return Signal(
-                direction="SELL",
-                sl=round(sl, 6),
-                tp=round(tp, 6),
-                metadata={
-                    "pulse":       "Negative",
-                    "entry_zone":  round(entry_zone, 6),
-                    "ema_fast_htf": "below slow",
-                    "atr":         round(atr, 6),
-                },
-            )
+            if sl > 0 and tp > 0 and sl > entry_zone:
+                self.state["pending_setup"] = {
+                    "direction": "SELL",
+                    "entry_zone": round(entry_zone, 6),
+                    "sl": round(sl, 6),
+                    "tp": round(tp, 6),
+                    "expire_idx": index + cfg.zone_validity_bars
+                }
+            return HOLD
 
         return HOLD
 
