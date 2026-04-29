@@ -684,6 +684,39 @@ function initStrategyPrompts() {
     });
 }
 
+async function downloadTemplateFile(filename) {
+    try {
+        const res = await api('/api/chart/strategies/templates-bundle');
+        if (!res) throw new Error("Failed to load templates");
+        
+        let content = '';
+        let type = 'text/plain';
+        if (filename === '_template.py') {
+            content = res.template_py;
+            type = 'text/x-python';
+        } else if (filename === 'STRATEGY_FORMAT.md') {
+            content = res.format_md;
+            type = 'text/markdown';
+        } else {
+            return;
+        }
+
+        const blob = new Blob([content], { type: type });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast(`Downloaded ${filename}`, 'success');
+    } catch (e) {
+        showToast('Failed to download template', 'error');
+        console.error(e);
+    }
+}
+
 async function uploadStrategyFile(file) {
     const statusDiv = document.getElementById('strat-upload-status');
     if (!statusDiv) return;

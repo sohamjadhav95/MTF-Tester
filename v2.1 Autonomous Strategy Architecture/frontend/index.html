@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="/styles/base.css">
     <link rel="stylesheet" href="/styles/components.css">
     <link rel="stylesheet" href="/styles/layout.css">
-    <link rel="stylesheet" href="/styles/panels.css?v=2">
+    <link rel="stylesheet" href="/styles/panels.css?v=3">
 </head>
 <body>
 <div class="app" id="app">
@@ -69,6 +69,10 @@
                 <div class="nav-item" data-panel="create-strategy" id="nav-create-strategy">
                     <i data-lucide="flask-conical" class="nav-ico"></i>
                     <span class="nav-label">Create</span>
+                </div>
+                <div class="nav-item" data-panel="guide" id="nav-guide">
+                    <i data-lucide="book-open" class="nav-ico"></i>
+                    <span class="nav-label">Guide</span>
                 </div>
 
                 <!-- Live Scanners Section (Populated later) -->
@@ -259,6 +263,73 @@
                 </div>
                 <div class="panel-body strat-upload-body">
 
+
+
+                    <!-- Info banner -->
+                    <div class="info-banner">
+                        <span class="info-banner-icon" style="color:var(--info);"><i data-lucide="info"></i></span>
+                        <div>
+                            <div class="info-banner-title">How to create a strategy</div>
+                            <div class="info-banner-text">
+                                Write a Python strategy file that extends <code>BaseStrategy</code>,
+                                then upload it here. It will appear in the strategy dropdown immediately.
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Upload zone -->
+                    <div class="upload-drop-zone" id="strat-drop-zone">
+                        <div class="upload-icon" style="color:var(--text-3);"><i data-lucide="file-code-2" style="width:36px; height:36px; stroke-width:1.5"></i></div>
+                        <div class="upload-text">Drop your <code>.py</code> strategy file here</div>
+                        <div class="upload-sub">or</div>
+                        <label class="btn btn-secondary" style="cursor:pointer; margin-top: 4px;">
+                            Browse File
+                            <input type="file" id="strat-file-input" accept=".py" style="display:none;">
+                        </label>
+                    </div>
+
+                    <!-- Upload status -->
+                    <div id="strat-upload-status" style="display:none; margin-top: var(--sp-3);"></div>
+
+                    <!-- Uploaded strategies list -->
+                    <div id="strat-uploaded-section" style="margin-top: var(--sp-5); display:none;">
+                        <div class="dash-section-title" style="margin-bottom: var(--sp-2);">
+                            Uploaded Strategies
+                            <button class="btn btn-ghost btn-xs" onclick="refreshUploadedStrategies()" 
+                                    style="margin-left: var(--sp-2); font-size:11px;"><i data-lucide="refresh-cw" style="width:12px;height:12px;margin-right:2px;vertical-align:-2px;"></i> Refresh</button>
+                        </div>
+                        <div id="strat-uploaded-list"></div>
+                    </div>
+
+                    
+
+                </div>
+            </div>
+
+            
+
+            <!-- ─── GUIDE PANEL ──────────────────────────────── -->
+            <div class="panel" id="panel-guide">
+                <div class="panel-header">
+                    <span class="panel-header-title">Developer Guide</span>
+                </div>
+                <div class="panel-body" style="padding: var(--sp-6); overflow-y: auto;">
+                    
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--sp-6); background: var(--bg-card); padding: var(--sp-5); border-radius: var(--r-md); border: 1px solid var(--border-1);">
+                        <div>
+                            <h2 style="color: var(--text-1); font-size: var(--fs-md); font-weight: 700; margin-bottom: var(--sp-1);">Strategy Templates</h2>
+                            <p style="color: var(--text-2); font-size: var(--fs-sm);">Download the boilerplate files to get started writing your own strategies locally.</p>
+                        </div>
+                        <div style="display: flex; gap: var(--sp-3);">
+                            <button class="btn btn-secondary" onclick="downloadTemplateFile('_template.py')">
+                                <i data-lucide="download" style="width:14px;height:14px;margin-right:6px;"></i> _template.py
+                            </button>
+                            <button class="btn btn-secondary" onclick="downloadTemplateFile('STRATEGY_FORMAT.md')">
+                                <i data-lucide="download" style="width:14px;height:14px;margin-right:6px;"></i> STRATEGY_FORMAT.md
+                            </button>
+                        </div>
+                    </div>
+
                     <!-- ─── Prompt templates (Phase D) ──────────────── -->
                     <div class="prompt-stepper">
                         <div class="prompt-stepper-header">
@@ -342,41 +413,6 @@ The two reference files for this template are inlined below. Read them, then pro
                     </div>
                     <!-- ─── End prompt templates ─────────────────────── -->
 
-                    <!-- Info banner -->
-                    <div class="info-banner">
-                        <span class="info-banner-icon" style="color:var(--info);"><i data-lucide="info"></i></span>
-                        <div>
-                            <div class="info-banner-title">How to create a strategy</div>
-                            <div class="info-banner-text">
-                                Write a Python strategy file that extends <code>BaseStrategy</code>,
-                                then upload it here. It will appear in the strategy dropdown immediately.
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Upload zone -->
-                    <div class="upload-drop-zone" id="strat-drop-zone">
-                        <div class="upload-icon" style="color:var(--text-3);"><i data-lucide="file-code-2" style="width:36px; height:36px; stroke-width:1.5"></i></div>
-                        <div class="upload-text">Drop your <code>.py</code> strategy file here</div>
-                        <div class="upload-sub">or</div>
-                        <label class="btn btn-secondary" style="cursor:pointer; margin-top: 4px;">
-                            Browse File
-                            <input type="file" id="strat-file-input" accept=".py" style="display:none;">
-                        </label>
-                    </div>
-
-                    <!-- Upload status -->
-                    <div id="strat-upload-status" style="display:none; margin-top: var(--sp-3);"></div>
-
-                    <!-- Uploaded strategies list -->
-                    <div id="strat-uploaded-section" style="margin-top: var(--sp-5); display:none;">
-                        <div class="dash-section-title" style="margin-bottom: var(--sp-2);">
-                            Uploaded Strategies
-                            <button class="btn btn-ghost btn-xs" onclick="refreshUploadedStrategies()" 
-                                    style="margin-left: var(--sp-2); font-size:11px;"><i data-lucide="refresh-cw" style="width:12px;height:12px;margin-right:2px;vertical-align:-2px;"></i> Refresh</button>
-                        </div>
-                        <div id="strat-uploaded-list"></div>
-                    </div>
 
                     <!-- Strategy file format guide -->
                     <details class="strat-guide" style="margin-top: var(--sp-5);">
@@ -434,7 +470,6 @@ class MyStrategy(BaseStrategy):
                             </div>
                         </div>
                     </details>
-
                 </div>
             </div>
 
