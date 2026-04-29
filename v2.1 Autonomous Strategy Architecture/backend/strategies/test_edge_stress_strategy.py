@@ -12,13 +12,14 @@ MODES — launch one scanner per mode, verify expected behavior:
         Verifies: signals flow, no regressions vs Heartbeat.
 
     crash_on_bar
-        Raises ValueError on every Nth on_bar call. After 5 consecutive
+        Runs cleanly for `crash_every_n_bars` calls, then raises ValueError on
+        every subsequent call so faults are CONSECUTIVE. After 5 consecutive
         faults the engine HALTS the scanner and emits SCANNER_ERROR.
         Verifies:
           • SCANNER_ERROR arrives on WebSocket
           • Toast appears
-          • Footer errors counter increments
-          • Scanner card LED turns to led-error
+          • Footer errors counter increments per fault
+          • After 5 consecutive faults: scanner card LED turns to led-error
           • After halt, no further processing
 
     crash_on_start
@@ -27,13 +28,16 @@ MODES — launch one scanner per mode, verify expected behavior:
                   emits no signals. UI should NOT lock up.
 
     bad_signal_string
-        Returns an unknown string like "MAYBE_BUY". Engine's _parse_signal
-        should silently HOLD (not crash the scanner). Each bar is a "fault"
-        only if the parser raises; current behavior — silent hold.
+        Returns an unknown string like "MAYBE_BUY" every `cadence_bars`. The
+        parser raises ValueError on unknown strings — counts as a bar fault.
+        Faults are NON-consecutive (cadence-spaced), so the scanner does NOT
+        halt. Verifies error-counter wiring without triggering halt.
 
     bad_signal_tuple
-        Returns a malformed tuple like ("BUY", "not-a-number"). Parser
-        should reject; this should crash on_bar and count toward halt.
+        Returns a malformed tuple ("BUY", "not-a-number", "also-bad") on
+        EVERY bar. Parser raises on the float conversion; faults accumulate
+        consecutively; scanner halts after 5 consecutive faults. Verifies
+        the halt path through the parser exception branch.
 
     rapid_fire
         Emits BUY on EVERY bar. Alternates with SELL via flip. Stresses:
@@ -229,8 +233,11 @@ class EdgeStressTest(BaseStrategy):
         price = float(closes[index])
 
         # ─── crash_on_bar ─────────────────────────────────────────
+        # Behavior: run cleanly for `crash_every_n_bars` calls, then raise on
+        # every subsequent call. This produces consecutive faults, which the
+        # engine counts toward the MAX_BAR_FAULTS=5 halt threshold.
         if cfg.mode == "crash_on_bar":
-            if self._bar_call_count % cfg.crash_every_n_bars == 0:
+            if self._bar_call_count > cfg.crash_every_n_bars:
                 raise ValueError(
                     f"crash_on_bar mode: intentional failure at call #{self._bar_call_count} (bar {index})"
                 )
@@ -243,10 +250,10 @@ class EdgeStressTest(BaseStrategy):
             return HOLD
 
         # ─── bad_signal_tuple ─────────────────────────────────────
+        # Returns malformed tuple on EVERY call so faults are consecutive and
+        # the scanner halts after MAX_BAR_FAULTS=5. Tests the halt path.
         if cfg.mode == "bad_signal_tuple":
-            if index % cfg.cadence_bars == 0:
-                return ("BUY", "not-a-number", "also-bad")  # malformed — parser should reject
-            return HOLD
+            return ("BUY", "not-a-number", "also-bad")  # malformed — parser raises ValueError
 
         # ─── rapid_fire — every bar, alternating ──────────────────
         if cfg.mode == "rapid_fire":

@@ -1069,21 +1069,27 @@ function renderActivityFeed() {
         
         if (item.feedType === 'signal') {
             const sig = item;
-            const cls = sig.action === 'BUY' ? 'long' : 'short';
+            const cls = sig.direction === 'BUY' ? 'long' : 'short';
             return `
             <div class="rp-activity-row">
                 <span class="rp-activity-time">${timeStr}</span>
                 <span class="rp-activity-msg"><strong>${sig.symbol}</strong> signal</span>
-                <span class="rp-activity-status badge badge-${cls}">${sig.action}</span>
+                <span class="rp-activity-status badge badge-${cls}">${sig.direction}</span>
             </div>`;
         } else if (item.feedType === 'trade_update') {
-            const pnl = item.profit != null ? fmtMoney(item.profit) : '';
-            const pnlCls = item.profit >= 0 ? 'profit' : 'loss';
+            const status = item.status || '';
+            // Green for TP HIT / AUTO_PLACED; red for SL HIT / AUTO_FAILED
+            const positive = (status === 'TP HIT' || status === 'AUTO_PLACED');
+            const cls = positive ? 'profit' : 'loss';
+            // Auto-trade events show ticket; SL/TP hits show symbol (no ticket on the payload)
+            const subject = item.ticket
+                ? `Trade <strong>#${item.ticket}</strong>`
+                : `<strong>${item.symbol || ''}</strong>`;
             return `
             <div class="rp-activity-row">
                 <span class="rp-activity-time">${timeStr}</span>
-                <span class="rp-activity-msg">Trade <strong>#${item.ticket}</strong> ${item.action}</span>
-                <span class="rp-activity-status ${pnlCls} mono" style="font-weight:600;">${pnl}</span>
+                <span class="rp-activity-msg">${subject}</span>
+                <span class="rp-activity-status ${cls} mono" style="font-weight:600;">${status}</span>
             </div>`;
         }
     }).join('');
@@ -1143,8 +1149,21 @@ function handleGlobalSignalMsg(msg) {
         // Update the signal row in the DOM
         updateGlobalSignalDOM(upd);
 
+        // Push trade events into the activity feed (renderer handles ticket/symbol shapes)
+        if (['AUTO_PLACED', 'AUTO_FAILED', 'SL HIT', 'TP HIT'].includes(status)) {
+            _activityFeed.unshift({
+                feedType: 'trade_update',
+                status,
+                symbol: upd.symbol,
+                ticket: upd.ticket || null,
+                timestamp: Date.now(),
+            });
+            if (_activityFeed.length > 20) _activityFeed.pop();
+            renderActivityFeed();
+        }
+
         // MT5 state-changing statuses: refresh positions + account so right pane stays in sync
-        const MT5_MUTATING = ['AUTO_PLACED', 'CLOSED', 'SL_HIT', 'TP_HIT'];
+        const MT5_MUTATING = ['AUTO_PLACED', 'SL HIT', 'TP HIT'];
         if (MT5_MUTATING.includes(status)) {
             // Small delay gives MT5 time to settle the position list
             setTimeout(() => { refreshAccountInfo(); }, 300);
@@ -2166,6 +2185,7 @@ function initDeployTrades() {
             try {
                 await api('/api/order/risk', 'POST', { enabled, threshold_pct, auto_close });
                 showToast('Risk guard updated', 'success');
+                refreshRiskChip();   // sync header chip with new state
             } catch (err) {
                 showToast(err.message, 'error');
             }

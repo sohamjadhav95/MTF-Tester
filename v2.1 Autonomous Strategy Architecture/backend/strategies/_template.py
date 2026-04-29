@@ -118,8 +118,8 @@ class BaseStrategy(ABC):
 
     def on_start(self, data: pd.DataFrame) -> None:
         """
-        Called ONCE at the very start of a scanner session, and ONCE at the
-        start of every backtest. NOT called on live polls.
+        Engine calls on_start exactly once at scanner startup and once per backtest.
+        Your `on_update` may invoke it manually to refresh caches.
         Populate self._cache with derived-from-data tables.
         """
         pass
