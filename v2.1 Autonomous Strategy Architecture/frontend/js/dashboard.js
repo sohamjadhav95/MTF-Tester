@@ -810,7 +810,7 @@ async function handleLaunchScanner() {
     const btn = document.getElementById('cfg-launch-btn');
     setLoading(btn, true, 'Starting...');
 
-    const config = { symbol, strategy_name: strategy, settings: { ...getStratSettings(), _name: name }, provider: 'mt5' };
+    const config = { name, symbol, strategy_name: strategy, settings: { ...getStratSettings(), _name: name }, provider: 'mt5' };
 
     try {
         const resp = await fetch('/api/chart/scanner/start', {
