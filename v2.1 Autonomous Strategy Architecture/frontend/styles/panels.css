@@ -625,3 +625,95 @@
 .rp-activity-msg strong { color: var(--text-1); font-weight: 700; }
 .rp-activity-status { justify-self: end; display: flex; align-items: center; }
 
+/* ═══ STRATEGY BUILDER PROMPTS (Phase D) ════════════════════════ */
+
+.prompt-stepper {
+    margin-bottom: var(--sp-5);
+    padding: var(--sp-4);
+    background: var(--bg-card);
+    border: 1px solid var(--border-1);
+    border-radius: var(--r-md);
+}
+
+.prompt-stepper-header {
+    margin-bottom: var(--sp-4);
+    padding-bottom: var(--sp-3);
+    border-bottom: 1px solid var(--border-1);
+}
+
+.prompt-stepper-title {
+    font-size: var(--fs-sm);
+    font-weight: 700;
+    color: var(--text-1);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: var(--sp-2);
+}
+
+.prompt-stepper-sub {
+    font-size: var(--fs-xs);
+    color: var(--text-2);
+    line-height: 1.55;
+}
+.prompt-stepper-sub code {
+    background: var(--bg-secondary);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-family: var(--ff-mono);
+    font-size: var(--fs-2xs);
+}
+.prompt-stepper-sub a {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 600;
+}
+.prompt-stepper-sub a:hover { text-decoration: underline; }
+
+.prompt-step {
+    display: flex;
+    gap: var(--sp-3);
+    padding: var(--sp-3) 0;
+    border-bottom: 1px solid var(--border-1);
+}
+.prompt-step:last-child { border-bottom: none; padding-bottom: 0; }
+.prompt-step:first-of-type { padding-top: 0; }
+
+.prompt-step-num {
+    flex-shrink: 0;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--accent-muted);
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--fs-xs);
+    font-weight: 700;
+    font-family: var(--ff-mono);
+}
+
+/* Step 2 — no action card; muted treatment */
+.prompt-step:nth-child(3) .prompt-step-num {
+    background: var(--bg-secondary);
+    color: var(--text-3);
+    border-color: var(--border-2);
+}
+
+.prompt-step-body { flex: 1; min-width: 0; }
+.prompt-step-title {
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    color: var(--text-1);
+    margin-bottom: 4px;
+}
+.prompt-step-desc {
+    font-size: var(--fs-xs);
+    color: var(--text-2);
+    line-height: 1.55;
+    margin-bottom: var(--sp-3);
+}
+.prompt-step-desc em { color: var(--text-3); font-style: italic; }
+
+.prompt-step:nth-child(3) .prompt-step-desc { margin-bottom: 0; }

@@ -259,6 +259,59 @@
                 </div>
                 <div class="panel-body strat-upload-body">
 
+                    <!-- ─── Prompt templates (Phase D) ──────────────── -->
+                    <div class="prompt-stepper">
+                        <div class="prompt-stepper-header">
+                            <div class="prompt-stepper-title">Don't know Python?</div>
+                            <div class="prompt-stepper-sub">
+                                Use these prompts with Claude or ChatGPT in your browser. Open
+                                <a href="https://claude.ai/new" target="_blank" rel="noopener">claude.ai</a>
+                                or
+                                <a href="https://chatgpt.com" target="_blank" rel="noopener">chatgpt.com</a>
+                                in a new tab, then walk through the steps below. When you're done, save the <code>.py</code> file Claude gives you and drop it in the upload zone.
+                            </div>
+                        </div>
+
+                        <div class="prompt-step">
+                            <div class="prompt-step-num">1</div>
+                            <div class="prompt-step-body">
+                                <div class="prompt-step-title">Explain the strategy</div>
+                                <div class="prompt-step-desc">
+                                    Paste this prompt into Claude/ChatGPT, replacing the bracketed section with your strategy description. Attach charts or example code if helpful.
+                                </div>
+                                <button class="btn btn-secondary btn-sm" data-prompt-step="1">
+                                    <i data-lucide="copy" style="width:13px;height:13px;margin-right:4px;vertical-align:-2px;"></i>
+                                    Copy prompt
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="prompt-step">
+                            <div class="prompt-step-num">2</div>
+                            <div class="prompt-step-body">
+                                <div class="prompt-step-title">Refine the explanation</div>
+                                <div class="prompt-step-desc">
+                                    Read what Claude/ChatGPT explained back. Correct misunderstandings, add edge cases ("what if both conditions trigger on the same bar?"), specify behavior during low volume or news. Move on when the explanation matches exactly what you want to trade. <em>No prompt needed for this step — just talk back and forth in the chat.</em>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="prompt-step">
+                            <div class="prompt-step-num">3</div>
+                            <div class="prompt-step-body">
+                                <div class="prompt-step-title">Generate the strategy file</div>
+                                <div class="prompt-step-desc">
+                                    Once the explanation is right, copy this prompt to get a complete, ready-to-upload Python file. Templates are inlined — no need to attach anything.
+                                </div>
+                                <button class="btn btn-primary btn-sm" data-prompt-step="3">
+                                    <i data-lucide="copy" style="width:13px;height:13px;margin-right:4px;vertical-align:-2px;"></i>
+                                    Copy prompt with templates
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- ─── End prompt templates ─────────────────────── -->
+
                     <!-- Info banner -->
                     <div class="info-banner">
                         <span class="info-banner-icon" style="color:var(--info);"><i data-lucide="info"></i></span>

@@ -31,6 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
         pollAccountInfo();
         initDeployTrades();
         initStrategyUpload();
+        initStrategyPrompts();
         initWatchlistPanel();
         connectGlobalSignalWS();
         initKillSwitchIndicator();
@@ -606,6 +607,81 @@ function initStrategyUpload() {
     }
 
     refreshUploadedStrategies();
+}
+
+// ═══ STRATEGY BUILDER PROMPTS (Phase D) ═══════════════════════
+
+const PROMPT_STEP_1 = `I want to build a trading strategy for an MTF (multi-timeframe) trading platform. Here is how the strategy works:
+
+[REPLACE THIS WITH YOUR STRATEGY DESCRIPTION — entry rules, exit rules, indicators, timeframes, any conditions or filters. Attach charts or reference code if helpful.]
+
+Read this carefully. Then explain back to me, in plain language:
+
+1. What conditions trigger a BUY signal, in your own words.
+2. What conditions trigger a SELL signal, in your own words.
+3. Where the stop-loss and take-profit are placed (or whether the strategy uses fixed values).
+4. One concrete walked-through example on a realistic price scenario showing the indicators evolving and a signal firing.
+
+Don't write code yet. I want to confirm we agree on the logic first.`;
+
+const PROMPT_STEP_3_PREFIX = `Build the trading strategy we just discussed as a single Python file conforming to the MTF Tester strategy template.
+
+Architectural rules (the engine enforces these — your code must comply):
+- Subclass \`BaseStrategy\` and define a config class extending \`StrategyConfig\` with typed \`Field()\` parameters for every tunable.
+- Pre-compute every indicator in \`on_start(self, data)\` and store results in \`self._cache\` (a dict). Do NOT recompute indicators in \`on_bar()\` — read from \`self._cache\` only.
+- \`on_bar(self, index, data)\` returns a \`Signal(direction=..., sl=..., tp=...)\` or \`HOLD\`. SL/TP are absolute price levels, not pip distances. Use \`None\` for missing SL or TP.
+- No look-ahead: in \`on_bar(index, data)\`, only read \`data.iloc[:index+1]\`. Anything that would peek at future bars is a fatal bug.
+- Allowed imports: standard library, numpy, pandas, pydantic, and \`strategies._template\`. Nothing else.
+- Output ONE complete file. No partial snippets, no "...", no placeholders.
+
+The two reference files for this template are inlined below. Read them, then produce the strategy file.
+
+`;
+
+async function copyPromptStep1() {
+    try {
+        await navigator.clipboard.writeText(PROMPT_STEP_1);
+        showToast('Step 1 prompt copied — paste into Claude or ChatGPT', 'success');
+    } catch (e) {
+        showToast('Could not copy. Select the text manually.', 'error');
+    }
+}
+
+async function copyPromptStep3() {
+    // Fetch templates lazily on click; cache for the session.
+    if (!window._cachedTemplates) {
+        try {
+            window._cachedTemplates = await api('/api/chart/strategies/templates-bundle');
+        } catch (e) {
+            showToast('Could not load template files from server', 'error');
+            return;
+        }
+    }
+    const { template_py, format_md } = window._cachedTemplates;
+    const prompt =
+        PROMPT_STEP_3_PREFIX +
+        '--- BEGIN STRATEGY_FORMAT.md ---\n\n' +
+        format_md +
+        '\n\n--- END STRATEGY_FORMAT.md ---\n\n' +
+        '--- BEGIN _template.py ---\n\n' +
+        template_py +
+        '\n\n--- END _template.py ---\n';
+    try {
+        await navigator.clipboard.writeText(prompt);
+        showToast('Step 3 prompt + templates copied — paste into the same chat', 'success');
+    } catch (e) {
+        showToast('Could not copy. The prompt is too large for some browsers — try Step 3 from a desktop browser.', 'error');
+    }
+}
+
+function initStrategyPrompts() {
+    document.querySelectorAll('[data-prompt-step]').forEach(btn => {
+        const step = btn.dataset.promptStep;
+        btn.addEventListener('click', () => {
+            if (step === '1') copyPromptStep1();
+            else if (step === '3') copyPromptStep3();
+        });
+    });
 }
 
 async function uploadStrategyFile(file) {

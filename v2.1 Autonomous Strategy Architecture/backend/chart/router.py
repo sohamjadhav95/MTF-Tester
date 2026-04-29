@@ -290,6 +290,36 @@ async def list_uploaded_strategies(request: Request):
     return {"uploaded": uploaded}
 
 
+@router.get("/strategies/templates-bundle")
+async def get_strategy_templates_bundle(request: Request):
+    """
+    Return _template.py and STRATEGY_FORMAT.md as raw text, for inclusion
+    in the Step 3 "Copy with templates" prompt. Read-only.
+    """
+    from main.config import STRATEGIES_DIR
+
+    template_path = STRATEGIES_DIR / "_template.py"
+    format_path = STRATEGIES_DIR / "STRATEGY_FORMAT.md"
+
+    if not template_path.exists() or not format_path.exists():
+        raise HTTPException(
+            status_code=500,
+            detail="Strategy template files missing on server",
+        )
+
+    try:
+        template_py = template_path.read_text(encoding="utf-8")
+        format_md = format_path.read_text(encoding="utf-8")
+    except Exception as e:
+        log.error(f"Failed to read template bundle: {e}")
+        raise HTTPException(status_code=500, detail="Could not read template files")
+
+    return {
+        "template_py": template_py,
+        "format_md": format_md,
+    }
+
+
 @router.post("/backtest")
 async def run_backtest(req: BacktestRequest, request: Request):
     from main.models import BacktestConfig
