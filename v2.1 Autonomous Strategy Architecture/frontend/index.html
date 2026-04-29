@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="/styles/base.css">
     <link rel="stylesheet" href="/styles/components.css">
     <link rel="stylesheet" href="/styles/layout.css">
-    <link rel="stylesheet" href="/styles/panels.css">
+    <link rel="stylesheet" href="/styles/panels.css?v=2">
 </head>
 <body>
 <div class="app" id="app">
@@ -272,41 +272,71 @@
                             </div>
                         </div>
 
-                        <div class="prompt-step">
-                            <div class="prompt-step-num">1</div>
-                            <div class="prompt-step-body">
-                                <div class="prompt-step-title">Explain the strategy</div>
-                                <div class="prompt-step-desc">
-                                    Paste this prompt into Claude/ChatGPT, replacing the bracketed section with your strategy description. Attach charts or example code if helpful.
-                                </div>
-                                <button class="btn btn-secondary btn-sm" data-prompt-step="1">
-                                    <i data-lucide="copy" style="width:13px;height:13px;margin-right:4px;vertical-align:-2px;"></i>
-                                    Copy prompt
-                                </button>
-                            </div>
-                        </div>
+                        <div class="prompt-stepper-content">
+                            <div class="prompt-step">
+                                <div class="prompt-step-num">1</div>
+                                <div class="prompt-step-body">
+                                    <div class="prompt-step-title">Explain the strategy</div>
+                                    <div class="prompt-step-desc">
+                                        Paste this prompt into Claude/ChatGPT, replacing the bracketed section with your strategy description. Attach charts or example code if helpful.
+                                    </div>
+                                    <div class="prompt-text-preview">
+I want to build a trading strategy for an MTF (multi-timeframe) trading platform. Here is how the strategy works:
 
-                        <div class="prompt-step">
-                            <div class="prompt-step-num">2</div>
-                            <div class="prompt-step-body">
-                                <div class="prompt-step-title">Refine the explanation</div>
-                                <div class="prompt-step-desc">
-                                    Read what Claude/ChatGPT explained back. Correct misunderstandings, add edge cases ("what if both conditions trigger on the same bar?"), specify behavior during low volume or news. Move on when the explanation matches exactly what you want to trade. <em>No prompt needed for this step — just talk back and forth in the chat.</em>
+[REPLACE THIS WITH YOUR STRATEGY DESCRIPTION — entry rules, exit rules, indicators, timeframes, any conditions or filters. Attach charts or reference code if helpful.]
+
+Read this carefully. Then explain back to me, in plain language:
+
+1. What conditions trigger a BUY signal, in your own words.
+2. What conditions trigger a SELL signal, in your own words.
+3. Where the stop-loss and take-profit are placed (or whether the strategy uses fixed values).
+4. One concrete walked-through example on a realistic price scenario showing the indicators evolving and a signal firing.
+
+Don't write code yet. I want to confirm we agree on the logic first.
+                                    </div>
+                                    <button class="btn btn-secondary btn-sm" data-prompt-step="1">
+                                        <i data-lucide="copy" style="width:13px;height:13px;margin-right:4px;vertical-align:-2px;"></i>
+                                        Copy prompt
+                                    </button>
                                 </div>
                             </div>
-                        </div>
 
-                        <div class="prompt-step">
-                            <div class="prompt-step-num">3</div>
-                            <div class="prompt-step-body">
-                                <div class="prompt-step-title">Generate the strategy file</div>
-                                <div class="prompt-step-desc">
-                                    Once the explanation is right, copy this prompt to get a complete, ready-to-upload Python file. Templates are inlined — no need to attach anything.
+                            <div class="prompt-step">
+                                <div class="prompt-step-num">2</div>
+                                <div class="prompt-step-body">
+                                    <div class="prompt-step-title">Refine the explanation</div>
+                                    <div class="prompt-step-desc">
+                                        Read what Claude/ChatGPT explained back. Correct misunderstandings, add edge cases ("what if both conditions trigger on the same bar?"), specify behavior during low volume or news. Move on when the explanation matches exactly what you want to trade. <em>No prompt needed for this step — just talk back and forth in the chat.</em>
+                                    </div>
                                 </div>
-                                <button class="btn btn-primary btn-sm" data-prompt-step="3">
-                                    <i data-lucide="copy" style="width:13px;height:13px;margin-right:4px;vertical-align:-2px;"></i>
-                                    Copy prompt with templates
-                                </button>
+                            </div>
+
+                            <div class="prompt-step">
+                                <div class="prompt-step-num">3</div>
+                                <div class="prompt-step-body">
+                                    <div class="prompt-step-title">Generate the strategy file</div>
+                                    <div class="prompt-step-desc">
+                                        Once the explanation is right, copy this prompt to get a complete, ready-to-upload Python file. Templates are inlined — no need to attach anything.
+                                    </div>
+                                    <div class="prompt-text-preview">
+Build the trading strategy we just discussed as a single Python file conforming to the MTF Tester strategy template.
+
+Architectural rules (the engine enforces these — your code must comply):
+- Subclass BaseStrategy and define a config class extending StrategyConfig with typed Field() parameters for every tunable.
+- Pre-compute every indicator in on_start(self, data) and store results in self._cache (a dict). Do NOT recompute indicators in on_bar() — read from self._cache only.
+- on_bar(self, index, data) returns a Signal(direction=..., sl=..., tp=...) or HOLD. SL/TP are absolute price levels, not pip distances. Use None for missing SL or TP.
+- No look-ahead: in on_bar(index, data), only read data.iloc[:index+1]. Anything that would peek at future bars is a fatal bug.
+- Allowed imports: standard library, numpy, pandas, pydantic, and strategies._template. Nothing else.
+- Output ONE complete file. No partial snippets, no "...", no placeholders.
+
+The two reference files for this template are inlined below. Read them, then produce the strategy file.
+<span style="opacity:0.5; font-style:italic;">[STRATEGY_FORMAT.md and _template.py will be automatically attached when you click copy]</span>
+                                    </div>
+                                    <button class="btn btn-primary btn-sm" data-prompt-step="3">
+                                        <i data-lucide="copy" style="width:13px;height:13px;margin-right:4px;vertical-align:-2px;"></i>
+                                        Copy prompt with templates
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>

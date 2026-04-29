@@ -625,95 +625,204 @@
 .rp-activity-msg strong { color: var(--text-1); font-weight: 700; }
 .rp-activity-status { justify-self: end; display: flex; align-items: center; }
 
-/* ═══ STRATEGY BUILDER PROMPTS (Phase D) ════════════════════════ */
+/* ═══ STRATEGY BUILDER PROMPTS (Phase D) - ENHANCED ════════════════════════ */
 
 .prompt-stepper {
     margin-bottom: var(--sp-5);
-    padding: var(--sp-4);
-    background: var(--bg-card);
-    border: 1px solid var(--border-1);
-    border-radius: var(--r-md);
+    background: linear-gradient(145deg, var(--bg-card), var(--bg-primary));
+    border: 1px solid var(--border-2);
+    border-radius: var(--r-lg);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.15), inset 0 1px 1px rgba(255,255,255,0.05);
+    position: relative;
+    overflow: hidden;
+}
+
+/* Subtle animated background glow */
+.prompt-stepper::before {
+    content: '';
+    position: absolute;
+    top: -50%; right: -50%;
+    width: 200%; height: 200%;
+    background: radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--accent) 15%, transparent), transparent 60%);
+    animation: rotateGlow 20s linear infinite;
+    pointer-events: none;
+}
+
+@keyframes rotateGlow {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
 }
 
 .prompt-stepper-header {
-    margin-bottom: var(--sp-4);
-    padding-bottom: var(--sp-3);
+    padding: var(--sp-5) var(--sp-5) var(--sp-4);
     border-bottom: 1px solid var(--border-1);
+    position: relative;
+    z-index: 1;
 }
 
 .prompt-stepper-title {
-    font-size: var(--fs-sm);
-    font-weight: 700;
+    font-size: var(--fs-md);
+    font-weight: 800;
     color: var(--text-1);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
+    letter-spacing: -0.02em;
     margin-bottom: var(--sp-2);
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
 }
 
 .prompt-stepper-sub {
-    font-size: var(--fs-xs);
+    font-size: var(--fs-sm);
     color: var(--text-2);
-    line-height: 1.55;
+    line-height: 1.6;
+    max-width: 90%;
 }
 .prompt-stepper-sub code {
-    background: var(--bg-secondary);
-    padding: 1px 5px;
-    border-radius: 3px;
+    background: var(--bg-tertiary);
+    padding: 2px 6px;
+    border-radius: 4px;
     font-family: var(--ff-mono);
-    font-size: var(--fs-2xs);
+    font-size: var(--fs-xs);
+    border: 1px solid var(--border-1);
 }
 .prompt-stepper-sub a {
     color: var(--accent);
     text-decoration: none;
     font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    transition: all var(--t-fast);
 }
-.prompt-stepper-sub a:hover { text-decoration: underline; }
+.prompt-stepper-sub a:hover { 
+    background: color-mix(in srgb, var(--accent) 20%, transparent);
+    text-decoration: none;
+}
+
+.prompt-stepper-content {
+    padding: var(--sp-5);
+    position: relative;
+    z-index: 1;
+}
 
 .prompt-step {
     display: flex;
-    gap: var(--sp-3);
-    padding: var(--sp-3) 0;
-    border-bottom: 1px solid var(--border-1);
+    gap: var(--sp-4);
+    margin-bottom: var(--sp-4);
+    position: relative;
+    padding-bottom: var(--sp-4);
 }
-.prompt-step:last-child { border-bottom: none; padding-bottom: 0; }
-.prompt-step:first-of-type { padding-top: 0; }
+.prompt-step:last-child { 
+    margin-bottom: 0; 
+    padding-bottom: 0;
+}
+
+/* Connecting line */
+.prompt-step:not(:last-child)::before {
+    content: '';
+    position: absolute;
+    left: 17px; /* center of 34px circle */
+    top: 34px;
+    bottom: 0;
+    width: 2px;
+    background: var(--border-1);
+    border-radius: 2px;
+}
 
 .prompt-step-num {
     flex-shrink: 0;
-    width: 26px;
-    height: 26px;
+    width: 34px;
+    height: 34px;
     border-radius: 50%;
-    background: var(--accent-muted);
-    color: var(--accent);
-    border: 1px solid var(--accent);
+    background: var(--bg-tertiary);
+    color: var(--text-2);
+    border: 2px solid var(--border-1);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: var(--fs-xs);
-    font-weight: 700;
-    font-family: var(--ff-mono);
-}
-
-/* Step 2 — no action card; muted treatment */
-.prompt-step:nth-child(3) .prompt-step-num {
-    background: var(--bg-secondary);
-    color: var(--text-3);
-    border-color: var(--border-2);
-}
-
-.prompt-step-body { flex: 1; min-width: 0; }
-.prompt-step-title {
     font-size: var(--fs-sm);
-    font-weight: 600;
+    font-weight: 800;
+    font-family: var(--ff-mono);
+    position: relative;
+    z-index: 2;
+    transition: all var(--t-base);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+/* Step 1 and 3 gets accent treatment because they have actions */
+.prompt-step:nth-child(1) .prompt-step-num,
+.prompt-step:nth-child(3) .prompt-step-num {
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    color: var(--accent);
+    border-color: var(--accent);
+    box-shadow: 0 0 15px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.prompt-step:hover .prompt-step-num {
+    transform: scale(1.1);
+}
+
+.prompt-step-body { 
+    flex: 1; 
+    min-width: 0; 
+    background: var(--bg-tertiary);
+    padding: var(--sp-4);
+    border-radius: var(--r-md);
+    border: 1px solid var(--border-1);
+    transition: all var(--t-base);
+}
+.prompt-step-body:hover {
+    border-color: var(--border-2);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.1);
+}
+
+.prompt-step-title {
+    font-size: var(--fs-md);
+    font-weight: 700;
     color: var(--text-1);
-    margin-bottom: 4px;
+    margin-bottom: var(--sp-2);
 }
 .prompt-step-desc {
-    font-size: var(--fs-xs);
+    font-size: var(--fs-sm);
     color: var(--text-2);
-    line-height: 1.55;
+    line-height: 1.6;
     margin-bottom: var(--sp-3);
 }
-.prompt-step-desc em { color: var(--text-3); font-style: italic; }
+.prompt-step-desc em { 
+    color: var(--text-3); 
+    font-style: italic; 
+    display: inline-block;
+    margin-top: var(--sp-2);
+}
 
-.prompt-step:nth-child(3) .prompt-step-desc { margin-bottom: 0; }
+.prompt-step:nth-child(2) .prompt-step-desc { margin-bottom: 0; }
+
+.prompt-step-body .btn {
+    margin-top: var(--sp-2);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+.prompt-text-preview {
+    background: var(--bg-card);
+    border: 1px solid var(--border-1);
+    border-radius: var(--r-sm);
+    padding: var(--sp-3);
+    margin-bottom: var(--sp-3);
+    font-family: var(--ff-mono);
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text-2);
+    white-space: pre-wrap;
+    max-height: 160px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-2) transparent;
+}
+.prompt-text-preview::-webkit-scrollbar {
+    width: 6px;
+}
+.prompt-text-preview::-webkit-scrollbar-thumb {
+    background-color: var(--border-2);
+    border-radius: 3px;
+}
