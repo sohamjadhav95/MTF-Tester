@@ -96,14 +96,15 @@ Strategies panel → fill:
 | Field | Value |
 |---|---|
 | Session Name | `Heartbeat EURUSD` |
-| Symbol | `EURUSD` (or whatever liquid symbol is available on your MT5 demo) |
+| Symbol | `EURUSD` (any liquid demo symbol — works on XAUUSD too because stops are ATR-scaled) |
 | Strategy | `Heartbeat Test` |
 | cadence_bars | `60` |
 | offset_bars | `0` |
-| sl_pips | `20` |
-| tp_pips | `40` |
-| pip_size | `0.0001` |
+| atr_multiplier | `2.0` |
+| rr_ratio | `2.0` |
 | direction_mode | `alternate` |
+
+> **Stops are ATR-scaled, not pip-based.** SL distance = current 14-period ATR × `atr_multiplier`. TP = SL × `rr_ratio`. This means the strategy works on any symbol without setting a pip size — the broker won't reject for "Invalid stops" (code 10016) on volatile instruments like XAUUSD.
 
 Click **Launch Scanner**.
 
@@ -231,7 +232,7 @@ Dashboard → Active Instances → **Stop** button on Heartbeat:
 
 Strategies panel → set up Heartbeat identically to 2.1 **except**:
 - cadence_bars: `100`
-- offset_bars: `1440` (skip the warmup window — the engine absorbs the first 1440 bars silently)
+- offset_bars: `1440` (skip the backtest engine's 1440-bar warmup — backtest suppresses signals for the first 1440 bars regardless)
 
 Don't launch live. Find the backtest button on the scanner panel (or wherever backtesting is triggered in your current UI — spec calls for a Backtest tab on the Strategies panel).
 
@@ -281,17 +282,29 @@ Launch with: `mode=crash_on_start`.
 
 Launch with: `mode=bad_signal_string`, `cadence_bars=30`.
 
-- [ ] Scanner runs, does NOT halt
-- [ ] NO signals appear in the panel (parser silently maps unknown to HOLD)
-- [ ] Footer errors counter stays at 0
-- [ ] No crash toasts
+The parser raises `ValueError` on unknown direction strings. Because the
+strategy returns the bad string only every 30 bars, faults are
+NON-consecutive — scanner does not halt.
+
+- [ ] Scanner runs, does NOT halt (no red LED, no scanner-card chip change)
+- [ ] NO signals appear in the panel (parser raises before any signal can be emitted)
+- [ ] Footer errors counter increments by 1 every ~30 bars (each parse exception emits SCANNER_ERROR)
+- [ ] Toast: "Scanner Error (...): ValueError: ..." appears every fault
+- [ ] Engine log shows `Strategy.on_bar() raised | ... ValueError: Strategy returned string 'MAYBE_BUY'`
 
 ### 4.4 — Mode: `bad_signal_tuple`
 
-Launch with: `mode=bad_signal_tuple`, `cadence_bars=30`.
+Launch with: `mode=bad_signal_tuple`. (`cadence_bars` is ignored — the
+strategy returns the malformed tuple on every bar.)
 
-- [ ] Within ~5 cadence triggers, scanner enters HALT state (5 consecutive bar faults)
-- [ ] Same SCANNER_ERROR toast/LED/footer behavior as 4.1
+The parser raises on the `float("not-a-number")` conversion. Because the
+strategy fires on EVERY bar, faults are CONSECUTIVE — scanner halts after
+MAX_BAR_FAULTS=5.
+
+- [ ] Within ~25 seconds (5 polls × 5s) scanner enters HALT state
+- [ ] Same SCANNER_ERROR toast / red LED / footer-errors increment as 4.1
+- [ ] Engine log shows `Scanner HALTED after 5 consecutive bar faults`
+- [ ] After halt: no more bar processing, no more error toasts (one final batch only)
 
 ### 4.5 — Mode: `rapid_fire` (dedup + throughput)
 
@@ -302,6 +315,26 @@ Launch with: `mode=rapid_fire`. **Do NOT enable auto-trade on this one.**
 - [ ] **Footer signal counter** climbs fast
 - [ ] Browser stays responsive (no lockup)
 - [ ] Stop the scanner. Signals stop immediately.
+
+---
+
+> ### ⚠ pip_size warning — read before running 4.6 through 4.11
+>
+> Edge Stress Test uses pip-based stops with the `pip_size` config field.
+> Default is `0.0001` (EURUSD-only). For other symbols set:
+>
+> - EURUSD, GBPUSD, USDJPY (4-digit pip): `pip_size = 0.0001`
+> - XAUUSD, XAGUSD: `pip_size = 0.1`
+> - BTCUSD: `pip_size = 1.0`
+>
+> Wrong `pip_size` will cause every auto-order to fail with broker code
+> 10016 ("Invalid stops"). This is **not a platform bug** — it's strategy
+> config. If you see AUTO_FAILED on every signal with "Invalid stops" in
+> the error, check `pip_size` first before reporting a regression.
+>
+> Heartbeat Test does NOT have this issue because it uses ATR-scaled stops.
+
+---
 
 ### 4.6 — Mode: `sl_only` + auto-trade
 
@@ -351,8 +384,7 @@ Launch: `mode=same_signal_repeat`, `cadence_bars=20`. Auto-trade on.
 
 Every 20 bars, fires BUY. Auto-executor should NOT place a new order if a matching-tag position already exists:
 - [ ] First signal: BUY opens. 1 position.
-- [ ] Next signal (still BUY, different signal_id): a NEW order opens because signal_id is different
-  - OR: auto-executor dedupes by "already has open position on this symbol+direction" — depends on implementation
+- [ ] Next signal (still BUY, different signal_id): auto-executor ignores it because `len(owned) >= max_open_positions` (default 1). It dedupes by position count limit, not by signal tag.
 - [ ] Document observed behavior. If you see positions accumulating forever, the dedup rule needs tightening.
 
 ### 4.12 — Mode: `state_accumulator` (P0-A: on_start/on_update split)
@@ -367,7 +399,14 @@ After launch:
 - [ ] **Then** the scanner starts firing BUY every 30 bars
 - [ ] If signals appeared IMMEDIATELY at launch, `on_start` is being re-called per poll and wiping state — P0-A regression
 
-**Cross-check:** run the same mode in backtest. Signals should fire starting at bar index `cadence_bars` onward (since backtest calls on_update less, but still — state accumulates across backtest bar loop if on_update is called once per bar).
+**Cross-check (intentional null result).** Run the same mode in backtest. The
+backtest engine calls `on_start` and `on_bar` only — never `on_update`. So
+`state["update_count"]` stays at 0 throughout the backtest, the threshold is
+never crossed, and the backtest produces ZERO signals. This is by design.
+
+If you see signals in backtest, something is calling `on_update` during
+backtest that shouldn't be — that would itself be a regression. Zero signals
+in backtest + signals after threshold in live is the passing condition.
 
 ### 4.13 — Mode: `slow_on_bar`
 
@@ -490,7 +529,7 @@ Report back as a single message. Don't try to patch during the run — finish th
 
 - **The C-7 status list in my earlier fix guide had wrong strings.** Backend actually emits `"TP HIT"` and `"SL HIT"` with spaces, not `TP_HIT`/`SL_HIT`, and there is no generic `CLOSED` status. If the MT5_MUTATING array in dashboard.js uses the underscored form, positions will NOT refresh on SL/TP hits. **Check line 1147 of dashboard.js.** If it's `['AUTO_PLACED', 'CLOSED', 'SL_HIT', 'TP_HIT']`, change to `['AUTO_PLACED', 'SL HIT', 'TP HIT']`. This is the only known correctness issue carried over from the fix guide.
 
-- **Warmup window is 1440 M1 bars (1 day).** Any strategy configured to fire early will have those signals silently suppressed. Backfill signal counts will be lower than naive cadence math predicts.
+- **Warmup window differs for live vs backtest.** In backtest, the engine skips the first 1440 M1 bars (1 day) by default. For the live scanner historical backfill, the engine scans the last 2880 bars (if 3000 are fetched, it skips the first ~120; zero skipped if <2880). Any strategy configured to fire early in the skipped window will have those signals silently suppressed. Backfill signal counts will be lower than naive cadence math predicts.
 
 - **MT5 demo vs live.** All auto-trade tests in Part 4 assume a demo account. Do not run 4.5 (rapid_fire), 4.9 (impossible_sl), or 4.11 (same_signal_repeat) on a live account.
 

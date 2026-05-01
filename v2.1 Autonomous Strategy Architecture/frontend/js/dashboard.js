@@ -31,6 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
         pollAccountInfo();
         initDeployTrades();
         initStrategyUpload();
+        initStrategyPrompts();
         initWatchlistPanel();
         connectGlobalSignalWS();
         initKillSwitchIndicator();
@@ -608,6 +609,114 @@ function initStrategyUpload() {
     refreshUploadedStrategies();
 }
 
+// ═══ STRATEGY BUILDER PROMPTS (Phase D) ═══════════════════════
+
+const PROMPT_STEP_1 = `I want to build a trading strategy for an MTF (multi-timeframe) trading platform. Here is how the strategy works:
+
+[REPLACE THIS WITH YOUR STRATEGY DESCRIPTION — entry rules, exit rules, indicators, timeframes, any conditions or filters. Attach charts or reference code if helpful.]
+
+Read this carefully. Then explain back to me, in plain language:
+
+1. What conditions trigger a BUY signal, in your own words.
+2. What conditions trigger a SELL signal, in your own words.
+3. Where the stop-loss and take-profit are placed (or whether the strategy uses fixed values).
+4. One concrete walked-through example on a realistic price scenario showing the indicators evolving and a signal firing.
+
+Don't write code yet. I want to confirm we agree on the logic first.`;
+
+const PROMPT_STEP_3_PREFIX = `Build the trading strategy we just discussed as a single Python file conforming to the MTF Tester strategy template.
+
+Architectural rules (the engine enforces these — your code must comply):
+- Subclass \`BaseStrategy\` and define a config class extending \`StrategyConfig\` with typed \`Field()\` parameters for every tunable.
+- Pre-compute every indicator in \`on_start(self, data)\` and store results in \`self._cache\` (a dict). Do NOT recompute indicators in \`on_bar()\` — read from \`self._cache\` only.
+- \`on_bar(self, index, data)\` returns a \`Signal(direction=..., sl=..., tp=...)\` or \`HOLD\`. SL/TP are absolute price levels, not pip distances. Use \`None\` for missing SL or TP.
+- No look-ahead: in \`on_bar(index, data)\`, only read \`data.iloc[:index+1]\`. Anything that would peek at future bars is a fatal bug.
+- Allowed imports: standard library, numpy, pandas, pydantic, and \`strategies._template\`. Nothing else.
+- Output ONE complete file. No partial snippets, no "...", no placeholders.
+
+The two reference files for this template are inlined below. Read them, then produce the strategy file.
+
+`;
+
+async function copyPromptStep1() {
+    try {
+        await navigator.clipboard.writeText(PROMPT_STEP_1);
+        showToast('Step 1 prompt copied — paste into Claude or ChatGPT', 'success');
+    } catch (e) {
+        showToast('Could not copy. Select the text manually.', 'error');
+    }
+}
+
+async function copyPromptStep3() {
+    // Fetch templates lazily on click; cache for the session.
+    if (!window._cachedTemplates) {
+        try {
+            window._cachedTemplates = await api('/api/chart/strategies/templates-bundle');
+        } catch (e) {
+            showToast('Could not load template files from server', 'error');
+            return;
+        }
+    }
+    const { template_py, format_md } = window._cachedTemplates;
+    const prompt =
+        PROMPT_STEP_3_PREFIX +
+        '--- BEGIN STRATEGY_FORMAT.md ---\n\n' +
+        format_md +
+        '\n\n--- END STRATEGY_FORMAT.md ---\n\n' +
+        '--- BEGIN _template.py ---\n\n' +
+        template_py +
+        '\n\n--- END _template.py ---\n';
+    try {
+        await navigator.clipboard.writeText(prompt);
+        showToast('Step 3 prompt + templates copied — paste into the same chat', 'success');
+    } catch (e) {
+        showToast('Could not copy. The prompt is too large for some browsers — try Step 3 from a desktop browser.', 'error');
+    }
+}
+
+function initStrategyPrompts() {
+    document.querySelectorAll('[data-prompt-step]').forEach(btn => {
+        const step = btn.dataset.promptStep;
+        btn.addEventListener('click', () => {
+            if (step === '1') copyPromptStep1();
+            else if (step === '3') copyPromptStep3();
+        });
+    });
+}
+
+async function downloadTemplateFile(filename) {
+    try {
+        const res = await api('/api/chart/strategies/templates-bundle');
+        if (!res) throw new Error("Failed to load templates");
+        
+        let content = '';
+        let type = 'text/plain';
+        if (filename === '_template.py') {
+            content = res.template_py;
+            type = 'text/x-python';
+        } else if (filename === 'STRATEGY_FORMAT.md') {
+            content = res.format_md;
+            type = 'text/markdown';
+        } else {
+            return;
+        }
+
+        const blob = new Blob([content], { type: type });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast(`Downloaded ${filename}`, 'success');
+    } catch (e) {
+        showToast('Failed to download template', 'error');
+        console.error(e);
+    }
+}
+
 async function uploadStrategyFile(file) {
     const statusDiv = document.getElementById('strat-upload-status');
     if (!statusDiv) return;
@@ -734,7 +843,7 @@ async function handleLaunchScanner() {
     const btn = document.getElementById('cfg-launch-btn');
     setLoading(btn, true, 'Starting...');
 
-    const config = { symbol, strategy_name: strategy, settings: { ...getStratSettings(), _name: name }, provider: 'mt5' };
+    const config = { name, symbol, strategy_name: strategy, settings: { ...getStratSettings(), _name: name }, provider: 'mt5' };
 
     try {
         const resp = await fetch('/api/chart/scanner/start', {
@@ -1069,21 +1178,27 @@ function renderActivityFeed() {
         
         if (item.feedType === 'signal') {
             const sig = item;
-            const cls = sig.action === 'BUY' ? 'long' : 'short';
+            const cls = sig.direction === 'BUY' ? 'long' : 'short';
             return `
             <div class="rp-activity-row">
                 <span class="rp-activity-time">${timeStr}</span>
                 <span class="rp-activity-msg"><strong>${sig.symbol}</strong> signal</span>
-                <span class="rp-activity-status badge badge-${cls}">${sig.action}</span>
+                <span class="rp-activity-status badge badge-${cls}">${sig.direction}</span>
             </div>`;
         } else if (item.feedType === 'trade_update') {
-            const pnl = item.profit != null ? fmtMoney(item.profit) : '';
-            const pnlCls = item.profit >= 0 ? 'profit' : 'loss';
+            const status = item.status || '';
+            // Green for TP HIT / AUTO_PLACED; red for SL HIT / AUTO_FAILED
+            const positive = (status === 'TP HIT' || status === 'AUTO_PLACED');
+            const cls = positive ? 'profit' : 'loss';
+            // Auto-trade events show ticket; SL/TP hits show symbol (no ticket on the payload)
+            const subject = item.ticket
+                ? `Trade <strong>#${item.ticket}</strong>`
+                : `<strong>${item.symbol || ''}</strong>`;
             return `
             <div class="rp-activity-row">
                 <span class="rp-activity-time">${timeStr}</span>
-                <span class="rp-activity-msg">Trade <strong>#${item.ticket}</strong> ${item.action}</span>
-                <span class="rp-activity-status ${pnlCls} mono" style="font-weight:600;">${pnl}</span>
+                <span class="rp-activity-msg">${subject}</span>
+                <span class="rp-activity-status ${cls} mono" style="font-weight:600;">${status}</span>
             </div>`;
         }
     }).join('');
@@ -1143,8 +1258,21 @@ function handleGlobalSignalMsg(msg) {
         // Update the signal row in the DOM
         updateGlobalSignalDOM(upd);
 
+        // Push trade events into the activity feed (renderer handles ticket/symbol shapes)
+        if (['AUTO_PLACED', 'AUTO_FAILED', 'SL HIT', 'TP HIT'].includes(status)) {
+            _activityFeed.unshift({
+                feedType: 'trade_update',
+                status,
+                symbol: upd.symbol,
+                ticket: upd.ticket || null,
+                timestamp: Date.now(),
+            });
+            if (_activityFeed.length > 20) _activityFeed.pop();
+            renderActivityFeed();
+        }
+
         // MT5 state-changing statuses: refresh positions + account so right pane stays in sync
-        const MT5_MUTATING = ['AUTO_PLACED', 'CLOSED', 'SL_HIT', 'TP_HIT'];
+        const MT5_MUTATING = ['AUTO_PLACED', 'SL HIT', 'TP HIT'];
         if (MT5_MUTATING.includes(status)) {
             // Small delay gives MT5 time to settle the position list
             setTimeout(() => { refreshAccountInfo(); }, 300);
@@ -2166,6 +2294,7 @@ function initDeployTrades() {
             try {
                 await api('/api/order/risk', 'POST', { enabled, threshold_pct, auto_close });
                 showToast('Risk guard updated', 'success');
+                refreshRiskChip();   // sync header chip with new state
             } catch (err) {
                 showToast(err.message, 'error');
             }

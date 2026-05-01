@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="/styles/base.css">
     <link rel="stylesheet" href="/styles/components.css">
     <link rel="stylesheet" href="/styles/layout.css">
-    <link rel="stylesheet" href="/styles/panels.css">
+    <link rel="stylesheet" href="/styles/panels.css?v=3">
 </head>
 <body>
 <div class="app" id="app">
@@ -69,6 +69,10 @@
                 <div class="nav-item" data-panel="create-strategy" id="nav-create-strategy">
                     <i data-lucide="flask-conical" class="nav-ico"></i>
                     <span class="nav-label">Create</span>
+                </div>
+                <div class="nav-item" data-panel="guide" id="nav-guide">
+                    <i data-lucide="book-open" class="nav-ico"></i>
+                    <span class="nav-label">Guide</span>
                 </div>
 
                 <!-- Live Scanners Section (Populated later) -->
@@ -259,6 +263,8 @@
                 </div>
                 <div class="panel-body strat-upload-body">
 
+
+
                     <!-- Info banner -->
                     <div class="info-banner">
                         <span class="info-banner-icon" style="color:var(--info);"><i data-lucide="info"></i></span>
@@ -294,6 +300,119 @@
                         </div>
                         <div id="strat-uploaded-list"></div>
                     </div>
+
+                    
+
+                </div>
+            </div>
+
+            
+
+            <!-- ─── GUIDE PANEL ──────────────────────────────── -->
+            <div class="panel" id="panel-guide">
+                <div class="panel-header">
+                    <span class="panel-header-title">Developer Guide</span>
+                </div>
+                <div class="panel-body" style="padding: var(--sp-6); overflow-y: auto;">
+                    
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--sp-6); background: var(--bg-card); padding: var(--sp-5); border-radius: var(--r-md); border: 1px solid var(--border-1);">
+                        <div>
+                            <h2 style="color: var(--text-1); font-size: var(--fs-md); font-weight: 700; margin-bottom: var(--sp-1);">Strategy Templates</h2>
+                            <p style="color: var(--text-2); font-size: var(--fs-sm);">Download the boilerplate files to get started writing your own strategies locally.</p>
+                        </div>
+                        <div style="display: flex; gap: var(--sp-3);">
+                            <button class="btn btn-secondary" onclick="downloadTemplateFile('_template.py')">
+                                <i data-lucide="download" style="width:14px;height:14px;margin-right:6px;"></i> _template.py
+                            </button>
+                            <button class="btn btn-secondary" onclick="downloadTemplateFile('STRATEGY_FORMAT.md')">
+                                <i data-lucide="download" style="width:14px;height:14px;margin-right:6px;"></i> STRATEGY_FORMAT.md
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- ─── Prompt templates (Phase D) ──────────────── -->
+                    <div class="prompt-stepper">
+                        <div class="prompt-stepper-header">
+                            <div class="prompt-stepper-title">Don't know Python?</div>
+                            <div class="prompt-stepper-sub">
+                                Use these prompts with Claude or ChatGPT in your browser. Open
+                                <a href="https://claude.ai/new" target="_blank" rel="noopener">claude.ai</a>
+                                or
+                                <a href="https://chatgpt.com" target="_blank" rel="noopener">chatgpt.com</a>
+                                in a new tab, then walk through the steps below. When you're done, save the <code>.py</code> file Claude gives you and drop it in the upload zone.
+                            </div>
+                        </div>
+
+                        <div class="prompt-stepper-content">
+                            <div class="prompt-step">
+                                <div class="prompt-step-num">1</div>
+                                <div class="prompt-step-body">
+                                    <div class="prompt-step-title">Explain the strategy</div>
+                                    <div class="prompt-step-desc">
+                                        Paste this prompt into Claude/ChatGPT, replacing the bracketed section with your strategy description. Attach charts or example code if helpful.
+                                    </div>
+                                    <div class="prompt-text-preview">
+I want to build a trading strategy for an MTF (multi-timeframe) trading platform. Here is how the strategy works:
+
+[REPLACE THIS WITH YOUR STRATEGY DESCRIPTION — entry rules, exit rules, indicators, timeframes, any conditions or filters. Attach charts or reference code if helpful.]
+
+Read this carefully. Then explain back to me, in plain language:
+
+1. What conditions trigger a BUY signal, in your own words.
+2. What conditions trigger a SELL signal, in your own words.
+3. Where the stop-loss and take-profit are placed (or whether the strategy uses fixed values).
+4. One concrete walked-through example on a realistic price scenario showing the indicators evolving and a signal firing.
+
+Don't write code yet. I want to confirm we agree on the logic first.
+                                    </div>
+                                    <button class="btn btn-secondary btn-sm" data-prompt-step="1">
+                                        <i data-lucide="copy" style="width:13px;height:13px;margin-right:4px;vertical-align:-2px;"></i>
+                                        Copy prompt
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="prompt-step">
+                                <div class="prompt-step-num">2</div>
+                                <div class="prompt-step-body">
+                                    <div class="prompt-step-title">Refine the explanation</div>
+                                    <div class="prompt-step-desc">
+                                        Read what Claude/ChatGPT explained back. Correct misunderstandings, add edge cases ("what if both conditions trigger on the same bar?"), specify behavior during low volume or news. Move on when the explanation matches exactly what you want to trade. <em>No prompt needed for this step — just talk back and forth in the chat.</em>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="prompt-step">
+                                <div class="prompt-step-num">3</div>
+                                <div class="prompt-step-body">
+                                    <div class="prompt-step-title">Generate the strategy file</div>
+                                    <div class="prompt-step-desc">
+                                        Once the explanation is right, copy this prompt to get a complete, ready-to-upload Python file. Templates are inlined — no need to attach anything.
+                                    </div>
+                                    <div class="prompt-text-preview">
+Build the trading strategy we just discussed as a single Python file conforming to the MTF Tester strategy template.
+
+Architectural rules (the engine enforces these — your code must comply):
+- Subclass BaseStrategy and define a config class extending StrategyConfig with typed Field() parameters for every tunable.
+- Pre-compute every indicator in on_start(self, data) and store results in self._cache (a dict). Do NOT recompute indicators in on_bar() — read from self._cache only.
+- on_bar(self, index, data) returns a Signal(direction=..., sl=..., tp=...) or HOLD. SL/TP are absolute price levels, not pip distances. Use None for missing SL or TP.
+- No look-ahead: in on_bar(index, data), only read data.iloc[:index+1]. Anything that would peek at future bars is a fatal bug.
+- Allowed imports: standard library, numpy, pandas, pydantic, and strategies._template. Nothing else.
+- Output ONE complete file. No partial snippets, no "...", no placeholders.
+
+The two reference files for this template are inlined below. Read them, then produce the strategy file.
+<span style="opacity:0.5; font-style:italic;">[STRATEGY_FORMAT.md and _template.py will be automatically attached when you click copy]</span>
+                                    </div>
+                                    <button class="btn btn-primary btn-sm" data-prompt-step="3">
+                                        <i data-lucide="copy" style="width:13px;height:13px;margin-right:4px;vertical-align:-2px;"></i>
+                                        Copy prompt with templates
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- ─── End prompt templates ─────────────────────── -->
+
 
                     <!-- Strategy file format guide -->
                     <details class="strat-guide" style="margin-top: var(--sp-5);">
@@ -351,7 +470,6 @@ class MyStrategy(BaseStrategy):
                             </div>
                         </div>
                     </details>
-
                 </div>
             </div>
 
@@ -478,7 +596,7 @@ class MyStrategy(BaseStrategy):
             <!-- ACCOUNT SECTION -->
             <div class="rp-section" id="rp-sec-account">
                 <div class="rp-section-header" onclick="this.parentElement.classList.toggle('collapsed')">
-                    ACCOUNT <span class="rp-section-summary" id="rp-account-summary"></span>
+                    ACCOUNT
                 </div>
                 <div class="rp-section-body">
                     <div class="rp-stat-row"><span>Equity</span><span class="mono" id="rp-equity">$0.00</span></div>

@@ -625,3 +625,179 @@
 .rp-activity-msg strong { color: var(--text-1); font-weight: 700; }
 .rp-activity-status { justify-self: end; display: flex; align-items: center; }
 
+/* ═══ STRATEGY BUILDER PROMPTS (Phase D) - ENHANCED ════════════════════════ */
+
+.prompt-stepper {
+    margin-bottom: var(--sp-5);
+    background: var(--bg-card);
+    border: 1px solid var(--border-2);
+    border-radius: var(--r-md);
+    position: relative;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+}
+
+.prompt-stepper-header {
+    padding: var(--sp-4) var(--sp-4) var(--sp-3);
+    border-bottom: 1px solid var(--border-1);
+    background: var(--bg-secondary);
+    border-radius: var(--r-md) var(--r-md) 0 0;
+}
+
+.prompt-stepper-title {
+    font-size: var(--fs-md);
+    font-weight: 700;
+    color: var(--text-1);
+    margin-bottom: var(--sp-1);
+    display: flex;
+    align-items: center;
+}
+
+.prompt-stepper-sub {
+    font-size: var(--fs-xs);
+    color: var(--text-2);
+    line-height: 1.5;
+}
+.prompt-stepper-sub code {
+    background: var(--bg-tertiary);
+    padding: 2px 5px;
+    border-radius: 3px;
+    font-family: var(--ff-mono);
+    font-size: var(--fs-2xs);
+    border: 1px solid var(--border-1);
+}
+.prompt-stepper-sub a {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 600;
+}
+.prompt-stepper-sub a:hover { 
+    text-decoration: underline;
+}
+
+.prompt-stepper-content {
+    padding: var(--sp-5);
+    position: relative;
+    z-index: 1;
+}
+
+.prompt-step {
+    display: flex;
+    gap: var(--sp-4);
+    margin-bottom: var(--sp-4);
+    position: relative;
+    padding-bottom: var(--sp-4);
+}
+.prompt-step:last-child { 
+    margin-bottom: 0; 
+    padding-bottom: 0;
+}
+
+/* Connecting line */
+.prompt-step:not(:last-child)::before {
+    content: '';
+    position: absolute;
+    left: 17px; /* center of 34px circle */
+    top: 34px;
+    bottom: 0;
+    width: 2px;
+    background: var(--border-1);
+    border-radius: 2px;
+}
+
+.prompt-step-num {
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: var(--bg-tertiary);
+    color: var(--text-2);
+    border: 2px solid var(--border-1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--fs-sm);
+    font-weight: 800;
+    font-family: var(--ff-mono);
+    position: relative;
+    z-index: 2;
+    transition: all var(--t-base);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+/* Step 1 and 3 gets accent treatment because they have actions */
+.prompt-step:nth-child(1) .prompt-step-num,
+.prompt-step:nth-child(3) .prompt-step-num {
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    color: var(--accent);
+    border-color: var(--accent);
+    box-shadow: 0 0 15px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.prompt-step:hover .prompt-step-num {
+    transform: scale(1.1);
+}
+
+.prompt-step-body { 
+    flex: 1; 
+    min-width: 0; 
+    background: var(--bg-tertiary);
+    padding: var(--sp-4);
+    border-radius: var(--r-md);
+    border: 1px solid var(--border-1);
+    transition: all var(--t-base);
+}
+.prompt-step-body:hover {
+    border-color: var(--border-2);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.1);
+}
+
+.prompt-step-title {
+    font-size: var(--fs-md);
+    font-weight: 700;
+    color: var(--text-1);
+    margin-bottom: var(--sp-2);
+}
+.prompt-step-desc {
+    font-size: var(--fs-sm);
+    color: var(--text-2);
+    line-height: 1.6;
+    margin-bottom: var(--sp-3);
+}
+.prompt-step-desc em { 
+    color: var(--text-3); 
+    font-style: italic; 
+    display: inline-block;
+    margin-top: var(--sp-2);
+}
+
+.prompt-step:nth-child(2) .prompt-step-desc { margin-bottom: 0; }
+
+.prompt-step-body .btn {
+    margin-top: var(--sp-2);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+.prompt-text-preview {
+    background: var(--bg-card);
+    border: 1px solid var(--border-1);
+    border-radius: var(--r-sm);
+    padding: var(--sp-3);
+    margin-bottom: var(--sp-3);
+    font-family: var(--ff-mono);
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text-2);
+    white-space: pre-wrap;
+    max-height: 160px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-2) transparent;
+}
+.prompt-text-preview::-webkit-scrollbar {
+    width: 6px;
+}
+.prompt-text-preview::-webkit-scrollbar-thumb {
+    background-color: var(--border-2);
+    border-radius: 3px;
+}
