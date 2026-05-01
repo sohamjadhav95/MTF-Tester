@@ -629,74 +629,49 @@
 
 .prompt-stepper {
     margin-bottom: var(--sp-5);
-    background: linear-gradient(145deg, var(--bg-card), var(--bg-primary));
+    background: var(--bg-card);
     border: 1px solid var(--border-2);
-    border-radius: var(--r-lg);
-    box-shadow: 0 8px 32px rgba(0,0,0,0.15), inset 0 1px 1px rgba(255,255,255,0.05);
+    border-radius: var(--r-md);
     position: relative;
-    overflow: hidden;
-}
-
-/* Subtle animated background glow */
-.prompt-stepper::before {
-    content: '';
-    position: absolute;
-    top: -50%; right: -50%;
-    width: 200%; height: 200%;
-    background: radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--accent) 15%, transparent), transparent 60%);
-    animation: rotateGlow 20s linear infinite;
-    pointer-events: none;
-}
-
-@keyframes rotateGlow {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
 }
 
 .prompt-stepper-header {
-    padding: var(--sp-5) var(--sp-5) var(--sp-4);
+    padding: var(--sp-4) var(--sp-4) var(--sp-3);
     border-bottom: 1px solid var(--border-1);
-    position: relative;
-    z-index: 1;
+    background: var(--bg-secondary);
+    border-radius: var(--r-md) var(--r-md) 0 0;
 }
 
 .prompt-stepper-title {
     font-size: var(--fs-md);
-    font-weight: 800;
+    font-weight: 700;
     color: var(--text-1);
-    letter-spacing: -0.02em;
-    margin-bottom: var(--sp-2);
+    margin-bottom: var(--sp-1);
     display: flex;
     align-items: center;
-    gap: var(--sp-2);
 }
 
 .prompt-stepper-sub {
-    font-size: var(--fs-sm);
+    font-size: var(--fs-xs);
     color: var(--text-2);
-    line-height: 1.6;
-    max-width: 90%;
+    line-height: 1.5;
 }
 .prompt-stepper-sub code {
     background: var(--bg-tertiary);
-    padding: 2px 6px;
-    border-radius: 4px;
+    padding: 2px 5px;
+    border-radius: 3px;
     font-family: var(--ff-mono);
-    font-size: var(--fs-xs);
+    font-size: var(--fs-2xs);
     border: 1px solid var(--border-1);
 }
 .prompt-stepper-sub a {
     color: var(--accent);
     text-decoration: none;
     font-weight: 600;
-    padding: 2px 6px;
-    border-radius: 4px;
-    background: color-mix(in srgb, var(--accent) 10%, transparent);
-    transition: all var(--t-fast);
 }
 .prompt-stepper-sub a:hover { 
-    background: color-mix(in srgb, var(--accent) 20%, transparent);
-    text-decoration: none;
+    text-decoration: underline;
 }
 
 .prompt-stepper-content {
